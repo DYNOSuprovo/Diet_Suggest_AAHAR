@@ -1,0 +1,35 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Environment variables
+.env
+
+# IDE settings
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Python packaging
+*.egg-info/
+.eggs/
+
+# Log and DB files
+*.log
+*.sqlite3
+*.db
+
+# Build artifacts
+build/
+dist/
+*.egg

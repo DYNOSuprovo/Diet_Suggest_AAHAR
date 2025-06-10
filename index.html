@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diet Assistant Chat</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif; /* Using Inter font */
+            background-color: #f0f4f8; /* Light blue-gray background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .chat-container {
+            width: 90%;
+            max-width: 768px; /* Max width for readability */
+            background-color: #ffffff;
+            border-radius: 1rem; /* Rounded corners */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 600px; /* Minimum height for the chat window */
+            max-height: 90vh; /* Max height relative to viewport */
+        }
+        .messages {
+            flex-grow: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            background-color: #e2e8f0; /* Slightly darker background for messages */
+            border-radius: 0.5rem;
+            margin: 1rem;
+        }
+        .message {
+            max-width: 80%;
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem; /* Rounded corners for messages */
+            word-wrap: break-word;
+        }
+        .message.user {
+            background-color: #3b82f6; /* Blue for user messages */
+            color: white;
+            align-self: flex-end; /* Align to the right */
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+        }
+        .message.ai {
+            background-color: #ffffff; /* White for AI messages */
+            color: #1a202c; /* Dark text */
+            align-self: flex-start; /* Align to the left */
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+        }
+        .input-area {
+            padding: 1.5rem;
+            background-color: #f8fafc; /* Lighter background for input area */
+            border-top: 1px solid #cbd5e0;
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+        .input-area input[type="text"] {
+            flex-grow: 1;
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem; /* Rounded corners */
+            border: 1px solid #cbd5e0;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .input-area input[type="text"]:focus {
+            border-color: #3b82f6; /* Blue border on focus */
+        }
+        .input-area button {
+            background-color: #10b981; /* Green button */
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem; /* Rounded corners */
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            box-shadow: 0 4px 6px rgba(16, 185, 129, 0.2);
+        }
+        .input-area button:hover {
+            background-color: #059669; /* Darker green on hover */
+            transform: translateY(-1px);
+        }
+        .input-area button:active {
+            transform: translateY(0);
+        }
+        .header {
+            background-color: #10b981; /* Header with green background */
+            color: white;
+            padding: 1.5rem;
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-align: center;
+            border-radius: 1rem 1rem 0 0; /* Rounded top corners */
+        }
+        .session-info {
+            font-size: 0.85rem;
+            color: #4a5568;
+            margin-bottom: 0.5rem;
+            text-align: center;
+            padding: 0.5rem 1rem;
+            background-color: #f0f4f8;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .loading-indicator {
+            display: none; /* Hidden by default */
+            margin-top: 10px;
+            font-style: italic;
+            color: #6b7280;
+            text-align: center;
+        }
+    </style>
+    <script>
+        // Ensure all DOM-manipulating code runs after the DOM is fully loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            const API_URL = 'http://localhost:8000/chat'; // <-- CHANGED TO PORT 8000
+            const messagesDiv = document.getElementById('messages');
+            const userInput = document.getElementById('user-input');
+            const sendBtn = document.getElementById('send-btn');
+            const sessionIdSpan = document.getElementById('session-id-display');
+            const loadingIndicator = document.getElementById('loading-indicator');
+
+            // Retrieve or generate session ID
+            let currentSessionId = localStorage.getItem('chat_session_id');
+            if (!currentSessionId) {
+                currentSessionId = 'sess_' + Math.random().toString(36).substring(2, 11);
+                localStorage.setItem('chat_session_id', currentSessionId);
+            }
+            sessionIdSpan.textContent = currentSessionId;
+
+            // Function to display messages
+            function addMessage(role, text) {
+                const messageElement = document.createElement('div');
+                messageElement.classList.add('message', role);
+                messageElement.innerHTML = marked.parse(text); // Use marked.js for Markdown
+                messagesDiv.appendChild(messageElement);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to bottom
+            }
+
+            async function sendMessage() {
+                const query = userInput.value.trim();
+                if (query === '') return;
+
+                addMessage('user', query);
+                userInput.value = ''; // Clear input
+
+                sendBtn.disabled = true;
+                loadingIndicator.style.display = 'block';
+
+                try {
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            query: query,
+                            session_id: currentSessionId
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                    }
+
+                    const data = await response.json();
+                    addMessage('ai', data.answer);
+                    // Update session ID if Flask sends a new one (though it should be consistent)
+                    if (data.session_id && data.session_id !== currentSessionId) {
+                        currentSessionId = data.session_id;
+                        localStorage.setItem('chat_session_id', currentSessionId);
+                        sessionIdSpan.textContent = currentSessionId;
+                    }
+
+                } catch (error) {
+                    console.error('Error sending message:', error);
+                    addMessage('ai', 'Oops! Something went wrong. Please try again later. Error: ' + error.message);
+                } finally {
+                    sendBtn.disabled = false;
+                    loadingIndicator.style.display = 'none';
+                }
+            }
+
+            sendBtn.addEventListener('click', sendMessage);
+            userInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+            // Add marked.js for Markdown rendering (from CDN)
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+            script.onload = () => {
+                // Initial message
+                addMessage('ai', 'Hello! How can I help you with your Indian diet plan today?');
+            };
+            document.head.appendChild(script);
+        });
+    </script>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="header">
+            🥗 Indian Diet Assistant
+        </div>
+        <div class="session-info">
+            Session ID: <span id="session-id-display"></span>
+        </div>
+        <div class="messages" id="messages">
+            <!-- Chat messages will appear here -->
+        </div>
+        <div class="loading-indicator" id="loading-indicator">Thinking...</div>
+        <div class="input-area">
+            <input type="text" id="user-input" placeholder="Type your diet question...">
+            <button id="send-btn">Send</button>
+        </div>
+    </div>
+</body>
+</html>
