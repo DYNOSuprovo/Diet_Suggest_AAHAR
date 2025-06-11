@@ -2,6 +2,7 @@
 import os
 import logging
 import random
+from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from langchain_google_genai import GoogleGenerativeAI
+
+# Google Sheets logging
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -23,6 +28,19 @@ if not GEMINI_API_KEY:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger('langchain_community.chat_message_histories.in_memory').setLevel(logging.WARNING)
 
+# --- Google Sheets Setup ---
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets"
+]
+
+creds = ServiceAccountCredentials.from_json_keyfile_name(
+    "diet-suggest-logger-6e048d507460.json", scope
+)
+gs_client = gspread.authorize(creds)
+sheet = gs_client.open("Diet Suggest Logs").sheet1  # Make sure this sheet exists & is shared
+
 # --- Initialize FastAPI App ---
 app = FastAPI(
     title="Indian Diet Recommendation API",
@@ -33,7 +51,7 @@ app = FastAPI(
 # --- Middleware ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -166,13 +184,25 @@ async def chat_endpoint(chat_request: ChatRequest, request: Request):
     current_langchain_history.add_user_message(user_query)
     current_langchain_history.add_ai_message(final_output)
 
+    # --- Log to Google Sheets ---
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sheet.append_row([
+            now,
+            session_id,
+            user_query,
+            final_output
+        ])
+        logging.info("📝 Logged to Google Sheets.")
+    except Exception as log_err:
+        logging.error(f"❌ Failed to log to Google Sheet: {log_err}")
+
     return JSONResponse(content={"answer": final_output, "session_id": session_id})
 
 
 @app.get("/")
 async def root():
     return {"message": "✅ Diet Recommendation API is running. Use POST /chat to interact."}
-
 
 # --- Render-friendly Port Binding ---
 if __name__ == "__main__":
