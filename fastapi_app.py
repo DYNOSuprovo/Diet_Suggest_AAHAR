@@ -1,42 +1,108 @@
 import os
+import json
 import logging
 from datetime import datetime
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
+from dotenv import load_dotenv
+from langchain_google_genai import GoogleGenerativeAI
 
-from utils.extractors import extract_diet_goal, extract_diet_preference, extract_regional_preference, contains_table_request
-from utils.session_memory import get_session_history
-from utils.google_logger import sheet
-from llms.groq_suggestions import cached_groq_answers
-from llms.merge_final import merge_prompt_default, merge_prompt_table, llm_gemini
-from rag.init_chain import conversational_qa_chain
+# Google Sheets logging
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-app = FastAPI()
+# --- Load Environment Variables ---
+load_dotenv()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+FASTAPI_SECRET_KEY = os.getenv("FASTAPI_SECRET_KEY", "a_very_secret_key_for_fastapi_sessions_change_this")
+GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+if not GEMINI_API_KEY:
+    raise ValueError("❌ GEMINI_API_KEY not found in .env or Render secrets!")
+
+# --- Logging Setup ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.getLogger('langchain_community.chat_message_histories.in_memory').setLevel(logging.WARNING)
+
+# --- Google Sheets Setup (Safe Mode) ---
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets"
+]
+
+sheet = None
+sheet_enabled = False
+
+if GOOGLE_CREDS_JSON:
+    try:
+        creds_dict = json.loads(GOOGLE_CREDS_JSON)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        gs_client = gspread.authorize(creds)
+        sheet = gs_client.open("Diet Suggest Logs").sheet1
+        sheet_enabled = True
+        logging.info("✅ Google Sheets connected.")
+    except Exception as e:
+        logging.warning(f"⚠️ Google Sheets disabled due to error: {e}")
+else:
+    logging.info("ℹ️ GOOGLE_CREDS_JSON not set. Skipping Google Sheets logging.")
+
+# --- Initialize FastAPI ---
+app = FastAPI(
+    title="Indian Diet Recommendation API",
+    description="A backend API for personalized Indian diet suggestions.",
+    version="0.1.0",
 )
 
-logging.basicConfig(level=logging.INFO)
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(SessionMiddleware, secret_key=FASTAPI_SECRET_KEY)
 
+# --- Local Modules ---
+from query_analysis import (
+    is_greeting, is_formatting_request, contains_table_request,
+    extract_diet_preference, extract_diet_goal, extract_regional_preference
+)
+from llm_chains import (
+    define_rag_prompt_template, setup_qa_chain, setup_conversational_qa_chain,
+    define_merge_prompt_templates, get_session_history
+)
+from embedding_utils import setup_vector_database
+from groq_integration import cached_groq_answers
 
+# --- LLM & VectorDB Init ---
+llm_gemini = GoogleGenerativeAI(
+    model="gemini-1.5-flash",
+    google_api_key=GEMINI_API_KEY,
+    temperature=0.5
+)
+
+try:
+    db, _ = setup_vector_database()
+    logging.info("✅ Vector DB initialized.")
+except Exception as e:
+    logging.error(f"❌ Vector DB init error: {e}")
+    raise HTTPException(status_code=500, detail="Vector DB init failed")
+
+rag_prompt = define_rag_prompt_template()
+try:
+    qa_chain = setup_qa_chain(llm_gemini, db, rag_prompt)
+except Exception as e:
+    logging.error(f"❌ QA Chain error: {e}")
+    raise HTTPException(status_code=500, detail="QA Chain init failed")
+
+conversational_qa_chain = setup_conversational_qa_chain(qa_chain)
+merge_prompt_default, merge_prompt_table = define_merge_prompt_templates()
+
+# --- Request Schema ---
 class ChatRequest(BaseModel):
     query: str
     session_id: str = None
 
-
-@app.get("/")
-async def health_check():
-    return {"status": "ok"}
-
-
+# --- Routes ---
 @app.post("/chat")
 async def chat(chat_request: ChatRequest, request: Request):
     user_query = chat_request.query
@@ -59,7 +125,8 @@ async def chat(chat_request: ChatRequest, request: Request):
     try:
         rag_result = await conversational_qa_chain.ainvoke({
             "query": user_query,
-            "chat_history": chat_history
+            "chat_history": chat_history,
+            **user_params
         }, config={"configurable": {"session_id": session_id}})
         rag_output = rag_result.get("answer", "No answer from RAG.")
     except Exception as e:
@@ -72,8 +139,8 @@ async def chat(chat_request: ChatRequest, request: Request):
             groq_suggestions = cached_groq_answers(
                 query=user_query,
                 groq_api_key=GROQ_API_KEY,
-                dietary_type=user_params["dietary_type"],
-                goal=user_params["goal"],
+                diet_preference=user_params["dietary_type"],
+                diet_goal=user_params["goal"],
                 region=user_params["region"]
             )
         except Exception as e:
@@ -98,7 +165,7 @@ async def chat(chat_request: ChatRequest, request: Request):
     get_session_history(session_id).add_ai_message(final_output)
 
     try:
-        if sheet:
+        if sheet_enabled and sheet:
             sheet.append_row([
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 session_id,
@@ -107,6 +174,15 @@ async def chat(chat_request: ChatRequest, request: Request):
             ])
             logging.info("📝 Logged to Google Sheet.")
     except Exception as log_err:
-        logging.error(f"❌ Failed to log to sheet: {log_err}")
+        logging.warning(f"⚠️ Failed to log to sheet: {log_err}")
 
     return JSONResponse(content={"answer": final_output, "session_id": session_id})
+
+
+@app.get("/")
+async def root():
+    return {"message": "✅ Diet Recommendation API is running. Use POST /chat to interact."}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
