@@ -56,8 +56,7 @@ def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: Promp
         def retrieve_and_log_context(input_dict):
             docs = retriever.invoke(input_dict["query"])
             context_str = "\n\n".join(doc.page_content for doc in docs)
-            # Log the context here
-            logging.info(f"Retrieved Context: {context_str}")
+            logging.info(f"Retrieved Context: {context_str}") # This log is crucial for RAG debugging
             return context_str
 
         qa_chain = (
@@ -90,7 +89,6 @@ def setup_conversational_qa_chain(qa_chain):
     logging.info("Conversational QA Chain initialized (input_messages_key='query').")
     return conversational_qa_chain
 
-# --- MODIFIED: define_merge_prompt_templates ---
 def define_merge_prompt_templates():
     merge_prompt_template_base = """
     You are an AI assistant specializing in Indian diet and nutrition.
@@ -101,33 +99,19 @@ def define_merge_prompt_templates():
     {additional_suggestions_section}
 
     Instructions:
-    1.  **Prioritize the "Primary RAG Answer" if it is specific and relevant.**
-    2.  **If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error (e.g., "Error while retrieving..."), then heavily rely on and synthesize from the "Additional Suggestions".**
-    3.  Combine information logically and seamlessly, without mentioning the source of each piece of information (e.g., don't say "LLaMA suggested...").
+    1.  **Prioritize the "Primary RAG Answer" if it is specific, relevant, and not an error message.**
+    2.  **If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error (e.g., "Error while retrieving response from knowledge base."), then heavily rely on and synthesize from the "Additional Suggestions".**
+    3.  Combine information logically and seamlessly, without mentioning the source of each piece of information (e.g., don't say "LLaMA suggested..." or "Since RAG was unavailable...").
     4.  Ensure the final plan is clear, actionable, and culturally relevant for Indian users.
     5.  If the user's input was *only* a greeting, respond politely without providing a diet plan. For inputs that include a greeting but also contain a query, focus on answering the query.
 
     Final {dietary_type} {goal} Food Suggestion/Diet Plan (Tailored for {region} Indian context):
     """
 
-    rag_section_template = """
-    Primary RAG Answer:
-    {rag}
-    """
-
-    additional_suggestions_template = """
-    Additional Suggestions (for fallback or enhancement):
-    - LLaMA Suggestion: {llama}
-    - Mixtral Suggestion: {mixtral}
-    - Gemma Suggestion: {gemma}
-    """
-
-    # We need a way to build the sections based on whether RAG failed
-    # This will be handled in fastapi_app.py before formatting the prompt
+    # We removed the separate rag_section_template and additional_suggestions_template
+    # because they are now formed directly in fastapi_app.py
 
     merge_prompt_default = PromptTemplate.from_template(merge_prompt_template_base)
-    # The 'rag' variable itself will contain the "Error" message if it fails,
-    # and the prompt will be instructed to handle it gracefully.
 
     merge_prompt_template_table_base = """
     You are an AI assistant specializing in Indian diet and nutrition.
@@ -139,9 +123,9 @@ def define_merge_prompt_templates():
     {additional_suggestions_section}
 
     Instructions:
-    1.  **Prioritize the "Primary RAG Answer" if it is specific and relevant.**
-    2.  **If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error (e.g., "Error while retrieving..."), then heavily rely on and synthesize from the "Additional Suggestions".**
-    3.  Combine information logically and seamlessly, without mentioning the source of each piece of information (e.g., don't say "LLaMA suggested...").
+    1.  **Prioritize the "Primary RAG Answer" if it is specific, relevant, and not an error message.**
+    2.  **If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error (e.g., "Error while retrieving response from knowledge base."), then heavily rely on and synthesize from the "Additional Suggestions".**
+    3.  Combine information logically and seamlessly, without mentioning the source of each piece of information (e.g., don't say "LLaMA suggested..." or "Since RAG was unavailable...").
     4.  Ensure the final plan is clear, actionable, and culturally relevant for Indian users.
     5.  If the user's input was *only* a greeting, respond politely without providing a diet plan. For inputs that include a greeting but also contain a query, focus on answering the query.
 
