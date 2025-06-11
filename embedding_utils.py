@@ -1,34 +1,22 @@
-# embedding_utils.py
-
-import os
-import logging
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+import os, logging
 
 def setup_vector_database(chroma_db_directory: str = "db"):
-    """
-    Sets up and returns the Chroma vector store and embedding function.
-    Logs and raises errors if setup fails.
-    """
     try:
-        logging.info("Initializing lightweight HuggingFaceEmbeddings for Render.")
-        embedding = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={'normalize_embeddings': True}
-        )
+        logging.info("Initializing lightweight Gemini Embeddings for Render.")
+
+        embedding = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=os.getenv("GEMINI_API_KEY"))
+        logging.info("Google GenerativeAI Embeddings initialized successfully.")
 
         if not os.path.exists(chroma_db_directory):
-            raise FileNotFoundError(
-                f"ChromaDB directory '{chroma_db_directory}' not found. Please ensure the DB is initialized."
-            )
+            logging.error(f"ChromaDB directory '{chroma_db_directory}' not found.")
+            raise FileNotFoundError(f"ChromaDB directory '{chroma_db_directory}' not found.")
 
         db = Chroma(persist_directory=chroma_db_directory, embedding_function=embedding)
         logging.info("Chroma DB loaded successfully.")
         return db, embedding
 
     except Exception as e:
-        logging.exception(f"VectorDB setup error: {e}")
-        raise RuntimeError(f"Vector DB initialization failed: {e}")
+        logging.exception("VectorDB setup failed:")
+        raise
