@@ -50,7 +50,7 @@ def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: Promp
             chain_type="stuff",
             return_source_documents=True,
             chain_type_kwargs={"prompt": rag_prompt},
-            input_key="query"
+            input_key="query" # This correctly expects "query"
         )
         logging.info("Retrieval QA Chain initialized successfully (input_key='query').")
         return qa_chain
@@ -62,7 +62,7 @@ def setup_conversational_qa_chain(qa_chain: RetrievalQA):
     conversational_qa_chain = RunnableWithMessageHistory(
         qa_chain,
         get_session_history,
-        input_messages_key="query",
+        input_messages_key="query", # This correctly expects "query"
         history_messages_key="chat_history",
         output_messages_key="answer"
     )
