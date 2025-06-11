@@ -123,7 +123,7 @@ async def chat(chat_request: ChatRequest, request: Request):
 
     try:
         rag_result = await conversational_qa_chain.ainvoke({
-            "question": user_query,  # ✅ Correct key
+            "question": user_query,
             "chat_history": chat_history,
             **user_params
         }, config={"configurable": {"session_id": session_id}})
@@ -136,7 +136,8 @@ async def chat(chat_request: ChatRequest, request: Request):
         groq_suggestions = cached_groq_answers(
             query=user_query,
             groq_api_key=GROQ_API_KEY,
-            diet_goal=user_params["goal"],
+            dietary_type=user_params["dietary_type"],
+            goal=user_params["goal"],
             region=user_params["region"]
         )
     except Exception as e:
@@ -173,12 +174,10 @@ async def chat(chat_request: ChatRequest, request: Request):
 
     return JSONResponse(content={"answer": final_output, "session_id": session_id})
 
-# --- Root Check ---
 @app.get("/")
 async def root():
     return {"message": "✅ Diet Recommendation API is running. Use POST /chat to interact."}
 
-# --- Entry Point ---
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
