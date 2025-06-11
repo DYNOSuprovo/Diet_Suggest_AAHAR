@@ -5,6 +5,8 @@ from langchain_google_genai import GoogleGenerativeAI
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_community.vectorstores import Chroma
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough # <-- NEW IMPORT
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -19,7 +21,6 @@ def get_session_history(session_id: str) -> ChatMessageHistory:
     return store[session_id]
 
 def define_rag_prompt_template():
-    # Define the template string first for readability
     template_string = """
     You are an AI assistant specialized in Indian diet and nutrition.
     Based on the following conversation history and the user's query, provide a simple, practical, and culturally relevant **{dietary_type}** food suggestion suitable for Indian users aiming for **{goal}**.
@@ -41,8 +42,6 @@ def define_rag_prompt_template():
     {dietary_type} {goal} Food Suggestion (Tailored for {region} Indian context):
     """
 
-    # Create the PromptTemplate, explicitly listing all expected input variables
-    # This is the crucial change:
     diet_prompt = PromptTemplate(
         template=template_string,
         input_variables=["query", "chat_history", "dietary_type", "goal", "region", "context"]
@@ -50,28 +49,36 @@ def define_rag_prompt_template():
     logging.info("RAG Prompt template created (with explicit input_variables).")
     return diet_prompt
 
+# --- MODIFIED: setup_qa_chain ---
 def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: PromptTemplate):
     try:
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=llm_gemini,
-            retriever=db.as_retriever(search_kwargs={"k": 5}),
-            chain_type="stuff",
-            return_source_documents=True,
-            chain_type_kwargs={"prompt": rag_prompt},
-            input_key="query"
+        # Define the retriever
+        retriever = db.as_retriever(search_kwargs={"k": 5})
+
+        # Define the RAG chain using LCEL (LangChain Expression Language)
+        # This ensures all variables are passed to the prompt
+        qa_chain = (
+            RunnablePassthrough.assign(
+                context=(lambda x: x["query"]) | retriever | (lambda docs: "\n\n".join(doc.page_content for doc in docs))
+            )
+            | rag_prompt
+            | llm_gemini
+            | StrOutputParser()
         )
-        logging.info("Retrieval QA Chain initialized successfully (input_key='query').")
+        logging.info("Retrieval QA Chain initialized successfully using LCEL.")
         return qa_chain
     except Exception as e:
         logging.exception("Full QA Chain setup traceback:")
         raise RuntimeError(f"QA Chain setup error: {e}")
 
-def setup_conversational_qa_chain(qa_chain: RetrievalQA):
+# --- setup_conversational_qa_chain remains the same, but will now work with the LCEL chain ---
+def setup_conversational_qa_chain(qa_chain): # Removed RetrievalQA type hint as it's now a Runnable
     conversational_qa_chain = RunnableWithMessageHistory(
         qa_chain,
         get_session_history,
         input_messages_key="query",
         history_messages_key="chat_history",
+        # The output_messages_key maps the final output of the chain to the AI message
         output_messages_key="answer"
     )
     logging.info("Conversational QA Chain initialized (input_messages_key='query').")
