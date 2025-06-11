@@ -19,7 +19,8 @@ def get_session_history(session_id: str) -> ChatMessageHistory:
     return store[session_id]
 
 def define_rag_prompt_template():
-    diet_prompt = PromptTemplate.from_template("""
+    # Define the template string first for readability
+    template_string = """
     You are an AI assistant specialized in Indian diet and nutrition.
     Based on the following conversation history and the user's query, provide a simple, practical, and culturally relevant **{dietary_type}** food suggestion suitable for Indian users aiming for **{goal}**.
     If a specific region like **{region}** is mentioned or inferred, prioritize food suggestions from that region.
@@ -38,8 +39,15 @@ def define_rag_prompt_template():
     {query}
 
     {dietary_type} {goal} Food Suggestion (Tailored for {region} Indian context):
-    """)
-    logging.info("RAG Prompt template created (using 'query').")
+    """
+
+    # Create the PromptTemplate, explicitly listing all expected input variables
+    # This is the crucial change:
+    diet_prompt = PromptTemplate(
+        template=template_string,
+        input_variables=["query", "chat_history", "dietary_type", "goal", "region", "context"]
+    )
+    logging.info("RAG Prompt template created (with explicit input_variables).")
     return diet_prompt
 
 def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: PromptTemplate):
@@ -50,7 +58,7 @@ def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: Promp
             chain_type="stuff",
             return_source_documents=True,
             chain_type_kwargs={"prompt": rag_prompt},
-            input_key="query" # This correctly expects "query"
+            input_key="query"
         )
         logging.info("Retrieval QA Chain initialized successfully (input_key='query').")
         return qa_chain
@@ -62,7 +70,7 @@ def setup_conversational_qa_chain(qa_chain: RetrievalQA):
     conversational_qa_chain = RunnableWithMessageHistory(
         qa_chain,
         get_session_history,
-        input_messages_key="query", # This correctly expects "query"
+        input_messages_key="query",
         history_messages_key="chat_history",
         output_messages_key="answer"
     )
