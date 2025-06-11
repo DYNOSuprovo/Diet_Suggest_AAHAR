@@ -1,5 +1,5 @@
 import logging
-from langchain.chains import RetrievalQA
+from langchain.chains import RetrievalQA # Keep this for type hinting if needed for clarity elsewhere, but not used directly for chain building
 from langchain.prompts import PromptTemplate
 from langchain_google_genai import GoogleGenerativeAI
 from langchain_core.runnables.history import RunnableWithMessageHistory
@@ -49,18 +49,29 @@ def define_rag_prompt_template():
     logging.info("RAG Prompt template created (with explicit input_variables).")
     return diet_prompt
 
-# --- MODIFIED: setup_qa_chain ---
+# --- MODIFIED AGAIN: setup_qa_chain to properly log context and pass it ---
 def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: PromptTemplate):
     try:
-        # Define the retriever
         retriever = db.as_retriever(search_kwargs={"k": 5})
 
-        # Define the RAG chain using LCEL (LangChain Expression Language)
-        # This ensures all variables are passed to the prompt
+        # Define a function to retrieve and log context
+        def retrieve_and_log_context(input_dict):
+            docs = retriever.invoke(input_dict["query"])
+            context_str = "\n\n".join(doc.page_content for doc in docs)
+            logging.info(f"Retrieved Context: {context_str}")
+            return context_str
+
+        # Define the RAG chain using LCEL
+        # We need to explicitly pass all inputs to the prompt after context is generated
         qa_chain = (
-            RunnablePassthrough.assign(
-                context=(lambda x: x["query"]) | retriever | (lambda docs: "\n\n".join(doc.page_content for doc in docs))
-            )
+            {
+                "context": retrieve_and_log_context, # Call our custom function to get and log context
+                "query": RunnablePassthrough(), # Pass the original query through
+                "chat_history": RunnablePassthrough(), # Pass chat_history through
+                "dietary_type": RunnablePassthrough(), # Pass dietary_type through
+                "goal": RunnablePassthrough(), # Pass goal through
+                "region": RunnablePassthrough(), # Pass region through
+            }
             | rag_prompt
             | llm_gemini
             | StrOutputParser()
@@ -71,15 +82,14 @@ def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: Promp
         logging.exception("Full QA Chain setup traceback:")
         raise RuntimeError(f"QA Chain setup error: {e}")
 
-# --- setup_conversational_qa_chain remains the same, but will now work with the LCEL chain ---
-def setup_conversational_qa_chain(qa_chain): # Removed RetrievalQA type hint as it's now a Runnable
+# --- setup_conversational_qa_chain and define_merge_prompt_templates remain unchanged ---
+def setup_conversational_qa_chain(qa_chain):
     conversational_qa_chain = RunnableWithMessageHistory(
         qa_chain,
         get_session_history,
         input_messages_key="query",
         history_messages_key="chat_history",
-        # The output_messages_key maps the final output of the chain to the AI message
-        output_messages_key="answer"
+        output_messages_key="answer" # This is important as `RunnableWithMessageHistory` expects this key
     )
     logging.info("Conversational QA Chain initialized (input_messages_key='query').")
     return conversational_qa_chain
