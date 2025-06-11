@@ -1,12 +1,12 @@
 import logging
-from langchain.chains import RetrievalQA # Keep this for type hinting if needed for clarity elsewhere, but not used directly for chain building
+from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
 from langchain_google_genai import GoogleGenerativeAI
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_community.vectorstores import Chroma
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough # <-- NEW IMPORT
+from langchain_core.runnables import RunnablePassthrough
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -49,28 +49,25 @@ def define_rag_prompt_template():
     logging.info("RAG Prompt template created (with explicit input_variables).")
     return diet_prompt
 
-# --- MODIFIED AGAIN: setup_qa_chain to properly log context and pass it ---
 def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: PromptTemplate):
     try:
         retriever = db.as_retriever(search_kwargs={"k": 5})
 
-        # Define a function to retrieve and log context
         def retrieve_and_log_context(input_dict):
             docs = retriever.invoke(input_dict["query"])
             context_str = "\n\n".join(doc.page_content for doc in docs)
+            # Log the context here
             logging.info(f"Retrieved Context: {context_str}")
             return context_str
 
-        # Define the RAG chain using LCEL
-        # We need to explicitly pass all inputs to the prompt after context is generated
         qa_chain = (
             {
-                "context": retrieve_and_log_context, # Call our custom function to get and log context
-                "query": RunnablePassthrough(), # Pass the original query through
-                "chat_history": RunnablePassthrough(), # Pass chat_history through
-                "dietary_type": RunnablePassthrough(), # Pass dietary_type through
-                "goal": RunnablePassthrough(), # Pass goal through
-                "region": RunnablePassthrough(), # Pass region through
+                "context": retrieve_and_log_context,
+                "query": RunnablePassthrough(),
+                "chat_history": RunnablePassthrough(),
+                "dietary_type": RunnablePassthrough(),
+                "goal": RunnablePassthrough(),
+                "region": RunnablePassthrough(),
             }
             | rag_prompt
             | llm_gemini
@@ -82,56 +79,75 @@ def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: Promp
         logging.exception("Full QA Chain setup traceback:")
         raise RuntimeError(f"QA Chain setup error: {e}")
 
-# --- setup_conversational_qa_chain and define_merge_prompt_templates remain unchanged ---
 def setup_conversational_qa_chain(qa_chain):
     conversational_qa_chain = RunnableWithMessageHistory(
         qa_chain,
         get_session_history,
         input_messages_key="query",
         history_messages_key="chat_history",
-        output_messages_key="answer" # This is important as `RunnableWithMessageHistory` expects this key
+        output_messages_key="answer"
     )
     logging.info("Conversational QA Chain initialized (input_messages_key='query').")
     return conversational_qa_chain
 
+# --- MODIFIED: define_merge_prompt_templates ---
 def define_merge_prompt_templates():
-    merge_prompt_template_default = """
-    You are a diet planning assistant.
-    Your goal is to synthesize information from a primary RAG-based answer and several other AI suggestions into a single, coherent, and practical **{dietary_type}** diet plan or suggestion for **{goal}**, tailored for a **{region}** Indian context if a region is specified.
-    Prioritize the Primary RAG Answer. If it's weak or irrelevant, use Additional Suggestions.
-    Ensure the final plan is clear, actionable, and tailored for Indian users. Present as a clear list or paragraph.
-    If the user's input was *only* a greeting, respond politely. For inputs that include a greeting but also contain a query, focus on answering the query.
+    merge_prompt_template_base = """
+    You are an AI assistant specializing in Indian diet and nutrition.
+    Your task is to provide a single, coherent, and practical **{dietary_type}** food suggestion or diet plan for **{goal}**, tailored for a **{region}** Indian context.
 
+    Here's the information available:
+    {rag_section}
+    {additional_suggestions_section}
+
+    Instructions:
+    1.  **Prioritize the "Primary RAG Answer" if it is specific and relevant.**
+    2.  **If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error (e.g., "Error while retrieving..."), then heavily rely on and synthesize from the "Additional Suggestions".**
+    3.  Combine information logically and seamlessly, without mentioning the source of each piece of information (e.g., don't say "LLaMA suggested...").
+    4.  Ensure the final plan is clear, actionable, and culturally relevant for Indian users.
+    5.  If the user's input was *only* a greeting, respond politely without providing a diet plan. For inputs that include a greeting but also contain a query, focus on answering the query.
+
+    Final {dietary_type} {goal} Food Suggestion/Diet Plan (Tailored for {region} Indian context):
+    """
+
+    rag_section_template = """
     Primary RAG Answer:
     {rag}
+    """
 
-    Additional Suggestions:
+    additional_suggestions_template = """
+    Additional Suggestions (for fallback or enhancement):
     - LLaMA Suggestion: {llama}
     - Mixtral Suggestion: {mixtral}
     - Gemma Suggestion: {gemma}
-
-    Refined and Merged {dietary_type} {goal} Food Suggestion (Tailored for {region} Indian context):
     """
-    merge_prompt_default = PromptTemplate.from_template(merge_prompt_template_default)
 
-    merge_prompt_template_table = """
-    You are a diet planning assistant.
-    Your goal is to synthesize information from a primary RAG-based answer and several other AI suggestions into a single, coherent, and practical **{dietary_type}** diet plan or suggestion for **{goal}**, tailored for a **{region}** Indian context if a region is specified.
-    Prioritize the Primary RAG Answer. If it's weak or irrelevant, use Additional Suggestions.
-    Ensure the final plan is clear, actionable, and tailored for Indian users.
+    # We need a way to build the sections based on whether RAG failed
+    # This will be handled in fastapi_app.py before formatting the prompt
+
+    merge_prompt_default = PromptTemplate.from_template(merge_prompt_template_base)
+    # The 'rag' variable itself will contain the "Error" message if it fails,
+    # and the prompt will be instructed to handle it gracefully.
+
+    merge_prompt_template_table_base = """
+    You are an AI assistant specializing in Indian diet and nutrition.
+    Your task is to provide a single, coherent, and practical **{dietary_type}** food suggestion or diet plan for **{goal}**, tailored for a **{region}** Indian context.
     **You MUST present the final diet plan as a clear markdown table. Include columns for Meal, Food Items, and Notes/Considerations.**
-    If the user's input was *only* a greeting, respond politely. For inputs that include a greeting but also contain a query, focus on answering the query.
 
-    Primary RAG Answer:
-    {rag}
+    Here's the information available:
+    {rag_section}
+    {additional_suggestions_section}
 
-    Additional Suggestions:
-    - LLaMA Suggestion: {llama}
-    - Mixtral Suggestion: {mixtral}
-    - Gemma Suggestion: {gemma}
+    Instructions:
+    1.  **Prioritize the "Primary RAG Answer" if it is specific and relevant.**
+    2.  **If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error (e.g., "Error while retrieving..."), then heavily rely on and synthesize from the "Additional Suggestions".**
+    3.  Combine information logically and seamlessly, without mentioning the source of each piece of information (e.g., don't say "LLaMA suggested...").
+    4.  Ensure the final plan is clear, actionable, and culturally relevant for Indian users.
+    5.  If the user's input was *only* a greeting, respond politely without providing a diet plan. For inputs that include a greeting but also contain a query, focus on answering the query.
 
-    Refined and Merged {dietary_type} {goal} Diet Plan/Suggestion (Tailored for {region} Indian context, in markdown table format):
+    Final {dietary_type} {goal} Diet Plan (Tailored for {region} Indian context, in markdown table format):
     """
-    merge_prompt_table = PromptTemplate.from_template(merge_prompt_template_table)
+    merge_prompt_table = PromptTemplate.from_template(merge_prompt_template_table_base)
+
     logging.info("Merge Prompt templates created.")
     return merge_prompt_default, merge_prompt_table
