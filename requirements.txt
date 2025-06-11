@@ -15,3 +15,5 @@ langchain-community
 google-generativeai
 gunicorn
 itsdangerous
+gspread
+oauth2client
