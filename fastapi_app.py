@@ -58,7 +58,7 @@ app = FastAPI(
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(SessionMiddleware, secret_key=FASTAPI_SECRET_KEY)
 
-# --- Import Local Modules ---
+# --- Local Modules ---
 from query_analysis import (
     is_greeting, is_formatting_request, contains_table_request,
     extract_diet_preference, extract_diet_goal, extract_regional_preference
@@ -99,8 +99,7 @@ class ChatRequest(BaseModel):
     query: str
     session_id: str = None
 
-# --- API Routes ---
-
+# --- Routes ---
 @app.post("/chat")
 async def chat(chat_request: ChatRequest, request: Request):
     user_query = chat_request.query
@@ -116,7 +115,6 @@ async def chat(chat_request: ChatRequest, request: Request):
         "goal": extract_diet_goal(user_query),
         "region": extract_regional_preference(user_query)
     }
-
     logging.info(f"🔍 Extracted: {user_params}")
 
     chat_history = get_session_history(session_id).messages
@@ -127,7 +125,6 @@ async def chat(chat_request: ChatRequest, request: Request):
             "chat_history": chat_history,
             **user_params
         }, config={"configurable": {"session_id": session_id}})
-
         rag_output = rag_result.get("answer", "No answer from RAG.")
     except Exception as e:
         logging.error(f"❌ RAG error: {e}", exc_info=True)
@@ -136,7 +133,13 @@ async def chat(chat_request: ChatRequest, request: Request):
     groq_suggestions = {"llama": "N/A", "mixtral": "N/A", "gemma": "N/A"}
     if GROQ_API_KEY:
         try:
-            groq_suggestions = cached_groq_answers(user_query, GROQ_API_KEY, **user_params)
+            groq_suggestions = cached_groq_answers(
+                query=user_query,
+                groq_api_key=GROQ_API_KEY,
+                diet_preference=user_params["dietary_type"],
+                diet_goal=user_params["goal"],
+                region=user_params["region"]
+            )
         except Exception as e:
             logging.error(f"❌ Groq error: {e}")
             groq_suggestions = {k: f"Error: {e}" for k in groq_suggestions}
@@ -145,12 +148,14 @@ async def chat(chat_request: ChatRequest, request: Request):
         merge_prompt = merge_prompt_table if contains_table_request(user_query) else merge_prompt_default
         merge_input = {
             "rag": rag_output,
-            **groq_suggestions,
+            "llama": groq_suggestions.get("llama", "N/A"),
+            "mixtral": groq_suggestions.get("mixtral", "N/A"),
+            "gemma": groq_suggestions.get("gemma", "N/A"),
             **user_params
         }
         final_output = await llm_gemini.ainvoke(merge_prompt.format(**merge_input))
     except Exception as e:
-        logging.error(f"❌ Merge error: {e}")
+        logging.error(f"❌ Merge error: {e}", exc_info=True)
         final_output = "Something went wrong while combining AI suggestions."
 
     get_session_history(session_id).add_user_message(user_query)
@@ -174,7 +179,6 @@ async def chat(chat_request: ChatRequest, request: Request):
 @app.get("/")
 async def root():
     return {"message": "✅ Diet Recommendation API is running. Use POST /chat to interact."}
-
 
 if __name__ == "__main__":
     import uvicorn
