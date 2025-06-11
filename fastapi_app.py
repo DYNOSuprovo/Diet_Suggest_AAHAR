@@ -1,4 +1,3 @@
-# fastapi_app.py
 import os
 import json
 import logging
@@ -122,8 +121,9 @@ async def chat(chat_request: ChatRequest, request: Request):
     chat_history = get_session_history(session_id).messages
 
     try:
+        # Corrected line: Changed "question" to "query"
         rag_result = await conversational_qa_chain.ainvoke({
-            "question": user_query,
+            "query": user_query, # <--- Corrected this line
             "chat_history": chat_history,
             **user_params
         }, config={"configurable": {"session_id": session_id}})
