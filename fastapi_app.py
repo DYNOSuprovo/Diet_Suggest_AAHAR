@@ -1,4 +1,4 @@
-#fastapi_app.py
+# fastapi_app.py
 import os
 import json
 import logging
@@ -29,28 +29,26 @@ if not GEMINI_API_KEY:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger('langchain_community.chat_message_histories.in_memory').setLevel(logging.WARNING)
 
-# --- Google Sheets Setup (Safe Mode) ---
-scope = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/spreadsheets"
-]
-
+# --- Google Sheets Setup ---
 sheet = None
 sheet_enabled = False
-
 if GOOGLE_CREDS_JSON:
     try:
         creds_dict = json.loads(GOOGLE_CREDS_JSON)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(
+            creds_dict,
+            ["https://spreadsheets.google.com/feeds",
+             "https://www.googleapis.com/auth/drive",
+             "https://www.googleapis.com/auth/spreadsheets"]
+        )
         gs_client = gspread.authorize(creds)
         sheet = gs_client.open("Diet Suggest Logs").sheet1
         sheet_enabled = True
         logging.info("✅ Google Sheets connected.")
     except Exception as e:
-        logging.warning(f"⚠️ Google Sheets disabled due to error: {e}")
+        logging.warning(f"⚠️ Google Sheets disabled: {e}")
 else:
-    logging.info("ℹ️ GOOGLE_CREDS_JSON not set. Skipping Google Sheets logging.")
+    logging.info("ℹ️ GOOGLE_CREDS_JSON not set. Skipping sheet logging.")
 
 # --- Initialize FastAPI ---
 app = FastAPI(
@@ -62,7 +60,7 @@ app = FastAPI(
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(SessionMiddleware, secret_key=FASTAPI_SECRET_KEY)
 
-# --- Local Modules ---
+# --- Local Imports ---
 from query_analysis import (
     is_greeting, is_formatting_request, contains_table_request,
     extract_diet_preference, extract_diet_goal, extract_regional_preference
@@ -74,7 +72,7 @@ from llm_chains import (
 from embedding_utils import setup_vector_database
 from groq_integration import cached_groq_answers
 
-# --- LLM & VectorDB Init ---
+# --- LLM & VectorDB Setup ---
 llm_gemini = GoogleGenerativeAI(
     model="gemini-1.5-flash",
     google_api_key=GEMINI_API_KEY,
@@ -89,6 +87,7 @@ except Exception as e:
     raise HTTPException(status_code=500, detail="Vector DB init failed")
 
 rag_prompt = define_rag_prompt_template()
+
 try:
     qa_chain = setup_qa_chain(llm_gemini, db, rag_prompt)
 except Exception as e:
@@ -98,17 +97,16 @@ except Exception as e:
 conversational_qa_chain = setup_conversational_qa_chain(qa_chain)
 merge_prompt_default, merge_prompt_table = define_merge_prompt_templates()
 
-# --- Request Schema ---
+# --- Schema ---
 class ChatRequest(BaseModel):
     query: str
     session_id: str = None
 
-# --- Routes ---
+# --- Chat Endpoint ---
 @app.post("/chat")
 async def chat(chat_request: ChatRequest, request: Request):
     user_query = chat_request.query
     client_session_id = chat_request.session_id
-
     session_id = client_session_id or request.session.get("session_id") or f"session_{os.urandom(8).hex()}"
     request.session["session_id"] = session_id
 
@@ -125,7 +123,7 @@ async def chat(chat_request: ChatRequest, request: Request):
 
     try:
         rag_result = await conversational_qa_chain.ainvoke({
-            "query": user_query,
+            "question": user_query,  # ✅ Correct key
             "chat_history": chat_history,
             **user_params
         }, config={"configurable": {"session_id": session_id}})
@@ -134,30 +132,26 @@ async def chat(chat_request: ChatRequest, request: Request):
         logging.error(f"❌ RAG error: {e}", exc_info=True)
         rag_output = "Error while retrieving response from knowledge base."
 
-    groq_suggestions = {"llama": "N/A", "mixtral": "N/A", "gemma": "N/A"}
-    if GROQ_API_KEY:
-        try:
-            groq_suggestions = cached_groq_answers(
-                query=user_query,
-                groq_api_key=GROQ_API_KEY,
-                diet_preference=user_params["dietary_type"],
-                diet_goal=user_params["goal"],
-                region=user_params["region"]
-            )
-        except Exception as e:
-            logging.error(f"❌ Groq error: {e}")
-            groq_suggestions = {k: f"Error: {e}" for k in groq_suggestions}
+    try:
+        groq_suggestions = cached_groq_answers(
+            query=user_query,
+            groq_api_key=GROQ_API_KEY,
+            diet_goal=user_params["goal"],
+            region=user_params["region"]
+        )
+    except Exception as e:
+        logging.error(f"❌ Groq error: {e}")
+        groq_suggestions = {"llama": "Error", "mixtral": "Error", "gemma": "Error"}
 
     try:
         merge_prompt = merge_prompt_table if contains_table_request(user_query) else merge_prompt_default
-        merge_input = {
-            "rag": rag_output,
-            "llama": groq_suggestions.get("llama", "N/A"),
-            "mixtral": groq_suggestions.get("mixtral", "N/A"),
-            "gemma": groq_suggestions.get("gemma", "N/A"),
+        final_output = await llm_gemini.ainvoke(merge_prompt.format(
+            rag=rag_output,
+            llama=groq_suggestions.get("llama", "N/A"),
+            mixtral=groq_suggestions.get("mixtral", "N/A"),
+            gemma=groq_suggestions.get("gemma", "N/A"),
             **user_params
-        }
-        final_output = await llm_gemini.ainvoke(merge_prompt.format(**merge_input))
+        ))
     except Exception as e:
         logging.error(f"❌ Merge error: {e}", exc_info=True)
         final_output = "Something went wrong while combining AI suggestions."
@@ -174,16 +168,17 @@ async def chat(chat_request: ChatRequest, request: Request):
                 final_output
             ])
             logging.info("📝 Logged to Google Sheet.")
-    except Exception as log_err:
-        logging.warning(f"⚠️ Failed to log to sheet: {log_err}")
+    except Exception as e:
+        logging.warning(f"⚠️ Sheet logging failed: {e}")
 
     return JSONResponse(content={"answer": final_output, "session_id": session_id})
 
-
+# --- Root Check ---
 @app.get("/")
 async def root():
     return {"message": "✅ Diet Recommendation API is running. Use POST /chat to interact."}
 
+# --- Entry Point ---
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
