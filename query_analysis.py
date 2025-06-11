@@ -8,10 +8,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Core keyword sets
 GREETINGS = {"hi", "hello", "hey", "namaste", "yo", "vanakkam", "bonjour", "salaam", "good morning", "good afternoon", "good evening"}
 TASK_KEYWORDS = {
-    "diet", "plan", "weight", "gain", "loss", "table", "format", "chart", "show", "give", 
+    "diet", "plan", "weight", "gain", "loss", "table", "format", "chart", "show", "give",
     "vegan", "veg", "non-veg", "non veg", "vegetarian", "nonvegetarian",
-    "south", "north", "east", "west", "india", "bengali", "punjabi", "maharashtrian", 
-    "gujarati", "tamil", "kannada", "telugu", "malayalam", "kanyakumari", 
+    "south", "north", "east", "west", "india", "bengali", "punjabi", "maharashtrian",
+    "gujarati", "tamil", "kannada", "telugu", "malayalam", "kanyakumari",
     "odisha", "oriya", "bhubaneswar", "cuttack"
 }
 FORMATTING_KEYWORDS = {"table", "tabular", "chart", "format", "list", "bullet", "points", "itemize", "enumerate"}
