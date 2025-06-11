@@ -1,4 +1,3 @@
-# llm_chains.py
 import logging
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
@@ -9,7 +8,6 @@ from langchain_community.vectorstores import Chroma
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# In-memory session store
 store = {}
 
 def get_session_history(session_id: str) -> ChatMessageHistory:
@@ -46,15 +44,12 @@ def define_rag_prompt_template():
 
 def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: PromptTemplate):
     try:
-        combine_documents_chain_kwargs = {
-            "prompt": rag_prompt,
-        }
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm_gemini,
             retriever=db.as_retriever(search_kwargs={"k": 5}),
             chain_type="stuff",
             return_source_documents=True,
-            chain_type_kwargs=combine_documents_chain_kwargs,
+            chain_type_kwargs={"prompt": rag_prompt},
             input_key="query"
         )
         logging.info("Retrieval QA Chain initialized successfully (input_key='query').")
