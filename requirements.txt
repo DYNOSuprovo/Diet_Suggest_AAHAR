@@ -18,3 +18,5 @@ itsdangerous
 gspread
 oauth2client
 psycopg2-binary
+gdown
+pdfminer.six
