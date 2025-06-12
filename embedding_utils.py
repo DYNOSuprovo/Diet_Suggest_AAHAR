@@ -1,37 +1,11 @@
 import os
 import logging
-import gdown
-import zipfile
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import Chroma
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-GOOGLE_DRIVE_FILE_ID = "1FiUvNdx9mVNpk1Mek5SAzezPGpJIwu5-"  # replace with your file ID
-DEST_ZIP = "vector_db.zip"
-EXTRACT_DIR = "db"
-
-def download_prebuilt_chroma_db_if_missing():
-    """Downloads and extracts prebuilt Chroma DB if not already present."""
-    if os.path.exists(EXTRACT_DIR) and os.path.isdir(EXTRACT_DIR):
-        logging.info("✅ Chroma vector DB already exists locally. Skipping download.")
-        return
-
-    try:
-        logging.info("📥 Prebuilt vector DB not found. Downloading from Google Drive...")
-        url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}"
-        gdown.download(url, DEST_ZIP, quiet=False)
-
-        with zipfile.ZipFile(DEST_ZIP, 'r') as zip_ref:
-            zip_ref.extractall(EXTRACT_DIR)
-        
-        os.remove(DEST_ZIP)
-        logging.info("✅ Vector DB downloaded and extracted successfully.")
-    except Exception as e:
-        logging.exception("❌ Failed to download or extract the vector DB.")
-        raise RuntimeError("Error downloading or extracting Chroma DB") from e
-
-def setup_vector_database(chroma_db_directory: str = "db", in_memory: bool = False):
+def setup_vector_database(chroma_db_directory: str = "/tmp/chroma_db", in_memory: bool = False):
     """
     Initializes Chroma vector database using Gemini embeddings.
 
@@ -44,7 +18,7 @@ def setup_vector_database(chroma_db_directory: str = "db", in_memory: bool = Fal
         embedding: Gemini embedding function
     """
     try:
-        logging.info("Initializing Gemini Embeddings for vector DB...")
+        logging.info("🔧 Initializing Gemini Embeddings...")
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise EnvironmentError("GEMINI_API_KEY not set in environment variables.")
@@ -55,19 +29,23 @@ def setup_vector_database(chroma_db_directory: str = "db", in_memory: bool = Fal
         )
         logging.info("✅ Gemini Embeddings loaded.")
 
-        if not in_memory:
-            download_prebuilt_chroma_db_if_missing()
+        persist_path = None if in_memory else chroma_db_directory
 
         db = Chroma(
-            persist_directory=None if in_memory else chroma_db_directory,
+            persist_directory=persist_path,
             embedding_function=embedding
         )
+
+        # 🔍 DEBUG: Check how many docs exist
+        try:
+            count = len(db.get()['documents'])
+            logging.info(f"📦 Vector DB loaded with {count} documents.")
+        except Exception as e:
+            logging.warning("⚠️ Could not count documents in Vector DB.")
+
         logging.info("✅ Chroma DB initialized successfully.")
         return db, embedding
 
-    except FileNotFoundError as fnf_error:
-        logging.error(str(fnf_error))
-        raise
     except Exception as e:
-        logging.exception("Vector DB setup failed due to unexpected error.")
+        logging.exception("❌ Vector DB setup failed.")
         raise
