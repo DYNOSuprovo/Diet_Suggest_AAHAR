@@ -1,5 +1,7 @@
 import os
 import json
+import zipfile
+import requests
 import logging
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
@@ -13,6 +15,32 @@ from langchain_google_genai import GoogleGenerativeAI
 # Google Sheets logging
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+
+# --- Download & Extract Vector DB ---
+def download_and_extract_db():
+    url = "https://drive.google.com/file/d/1FiUvNdx9mVNpk1Mek5SAzezPGpJIwu5-/view?usp=drive_link"  # 🔁 Replace with your actual file ID
+    zip_path = "/tmp/db.zip"
+    extract_path = "/tmp/chroma_db"
+
+    # Skip if already extracted
+    if os.path.exists(os.path.join(extract_path, 'index')):
+        print("✅ Chroma DB already exists. Skipping download.")
+        return
+
+    try:
+        print("⬇️ Downloading Chroma DB zip...")
+        response = requests.get(url)
+        with open(zip_path, "wb") as f:
+            f.write(response.content)
+
+        print("📦 Extracting zip...")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_path)
+
+        print("✅ Vector DB downloaded and extracted.")
+    except Exception as e:
+        print(f"❌ Error downloading/extracting DB: {e}")
+        raise HTTPException(status_code=500, detail="Failed to prepare Vector DB.")
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -71,6 +99,9 @@ from llm_chains import (
 from embedding_utils import setup_vector_database
 from groq_integration import cached_groq_answers
 
+# --- Download vector DB from cloud storage ---
+download_and_extract_db()
+
 # --- LLM & VectorDB Setup ---
 llm_gemini = GoogleGenerativeAI(
     model="gemini-1.5-flash",
@@ -120,28 +151,21 @@ async def chat(chat_request: ChatRequest, request: Request):
 
     chat_history = get_session_history(session_id).messages
 
-    # --- Start of RAG processing ---
-    rag_output = "No answer from RAG." # Default value if RAG fails
-
+    # --- RAG ---
+    rag_output = "No answer from RAG."
     try:
-        # Pass all user_params and history to the conversational chain
         rag_result = await conversational_qa_chain.ainvoke({
             "query": user_query,
             "chat_history": chat_history,
-            **user_params # This expands dietary_type, goal, region
+            **user_params
         }, config={"configurable": {"session_id": session_id}})
-
-        # CRITICAL FIX 1: rag_result is now directly the string output, not a dictionary
         rag_output = rag_result
-        logging.info(f"✅ RAG Chain Raw Output: {rag_output[:100]}...") # Log beginning of successful RAG output
-
+        logging.info(f"✅ RAG Chain Raw Output: {rag_output[:100]}...")
     except Exception as e:
         logging.error(f"❌ RAG error: {e}", exc_info=True)
-        # Keep this specific message so the merge prompt can conditionally ignore it
         rag_output = "Error while retrieving response from knowledge base."
-        # No need to raise HTTPException here, we want to fallback to Groq
 
-    # --- Groq suggestions (remains mostly same) ---
+    # --- Groq Suggestions ---
     try:
         groq_suggestions = cached_groq_answers(
             query=user_query,
@@ -154,35 +178,24 @@ async def chat(chat_request: ChatRequest, request: Request):
         logging.error(f"❌ Groq error: {e}")
         groq_suggestions = {"llama": "Error", "mixtral": "Error", "gemma": "Error"}
 
-    # --- Merging Logic (CRITICAL FIX 2) ---
+    # --- Merge ---
     try:
         merge_prompt = merge_prompt_table if contains_table_request(user_query) else merge_prompt_default
-
-        # Construct the sections for the merge prompt
-        rag_section_content = f"Primary RAG Answer:\n{rag_output}"
-
-        # If RAG explicitly failed, we might want to make the "Primary RAG Answer" section simpler
-        # or indicate its failure to the LLM less prominently.
-        # However, the prompt itself is now designed to handle "Error while retrieving..." gracefully.
-        # So, we just pass the rag_output as is.
-
-        additional_suggestions_section_content = (
-            f"Additional Suggestions (for fallback or enhancement):\n"
-            f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
-            f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
-            f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
-        )
-
         final_output = await llm_gemini.ainvoke(merge_prompt.format(
-            rag_section=rag_section_content, # Pass the constructed section
-            additional_suggestions_section=additional_suggestions_section_content, # Pass this too
-            **user_params # Continue passing these, as they are used in the main prompt body
+            rag_section=f"Primary RAG Answer:\n{rag_output}",
+            additional_suggestions_section=(
+                f"Additional Suggestions (for fallback or enhancement):\n"
+                f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
+                f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
+                f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
+            ),
+            **user_params
         ))
     except Exception as e:
         logging.error(f"❌ Merge error: {e}", exc_info=True)
         final_output = "Something went wrong while combining AI suggestions. Please try again."
 
-    # --- Session history and logging (remains same) ---
+    # --- Session History ---
     get_session_history(session_id).add_user_message(user_query)
     get_session_history(session_id).add_ai_message(final_output)
 
