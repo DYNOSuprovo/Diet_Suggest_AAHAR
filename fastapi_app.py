@@ -1,3 +1,4 @@
+# fastapi_app.py
 import os
 import json
 import logging
@@ -11,6 +12,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from langchain_google_genai import GoogleGenerativeAI
+from custom_callbacks import SafeTracer
 
 # Google Sheets logging
 import gspread
@@ -145,14 +147,17 @@ async def chat(chat_request: ChatRequest, request: Request):
     logging.info(f"🔍 Extracted: {user_params}")
 
     chat_history = get_session_history(session_id).messages
-    rag_output = "No answer from RAG."  # Fallback
+    rag_output = "No answer from RAG."
 
     try:
         rag_result = await conversational_qa_chain.ainvoke({
             "query": user_query,
             "chat_history": chat_history,
             **user_params
-        }, config={"configurable": {"session_id": session_id}})
+        }, config={
+            "callbacks": [SafeTracer()],
+            "configurable": {"session_id": session_id}
+        })
         rag_output = rag_result
         logging.info(f"✅ RAG Chain Raw Output: {str(rag_output)[:100]}...")
     except Exception as e:
@@ -174,15 +179,21 @@ async def chat(chat_request: ChatRequest, request: Request):
     try:
         merge_prompt = merge_prompt_table if contains_table_request(user_query) else merge_prompt_default
 
-        final_output = await llm_gemini.ainvoke(merge_prompt.format(
-            rag_section=f"Primary RAG Answer:\n{rag_output}",
-            additional_suggestions_section=(
-                f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
-                f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
-                f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
+        final_output = await llm_gemini.ainvoke(
+            merge_prompt.format(
+                rag_section=f"Primary RAG Answer:\n{rag_output}",
+                additional_suggestions_section=(
+                    f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
+                    f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
+                    f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
+                ),
+                **user_params
             ),
-            **user_params
-        ))
+            config={
+                "callbacks": [SafeTracer()],
+                "configurable": {"session_id": session_id}
+            }
+        )
     except Exception as e:
         logging.error(f"❌ Merge error: {e}", exc_info=True)
         final_output = "Something went wrong while combining AI suggestions."
