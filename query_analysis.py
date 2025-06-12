@@ -1,26 +1,43 @@
 # query_analysis.py
+# query_analysis.py
+
 import string
 import re
 import logging
+from functools import lru_cache
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Core keyword sets
-GREETINGS = {"hi", "hello", "hey", "namaste", "yo", "vanakkam", "bonjour", "salaam", "good morning", "good afternoon", "good evening"}
+GREETINGS = {
+    "hi", "hello", "hey", "namaste", "yo", "vanakkam", "bonjour", "salaam",
+    "good morning", "good afternoon", "good evening"
+}
+
 TASK_KEYWORDS = {
     "diet", "plan", "weight", "gain", "loss", "table", "format", "chart", "show", "give",
     "vegan", "veg", "non-veg", "non veg", "vegetarian", "nonvegetarian",
     "south", "north", "east", "west", "india", "bengali", "punjabi", "maharashtrian",
     "gujarati", "tamil", "kannada", "telugu", "malayalam", "kanyakumari",
-    "odisha", "oriya", "bhubaneswar", "cuttack"
+    "odisha", "oriya", "bhubaneswar", "cuttack", "angul"
 }
-FORMATTING_KEYWORDS = {"table", "tabular", "chart", "format", "list", "bullet", "points", "itemize", "enumerate"}
-FILLER_WORDS = {"in", "a", "as", "give", "me", "show", "it", "that", "please", "can", "you", "the", "for", "my"}
+
+FORMATTING_KEYWORDS = {
+    "table", "tabular", "chart", "format", "list", "bullet", "points", "itemize", "enumerate"
+}
+
+FILLER_WORDS = {
+    "in", "a", "as", "give", "me", "show", "it", "that", "please", "can", "you",
+    "the", "for", "my", "to", "with", "want"
+}
+
 
 def clean_query(query: str) -> str:
     """Strips punctuation and lowercases the query."""
     return query.translate(str.maketrans('', '', string.punctuation)).strip().lower()
 
+
+@lru_cache(maxsize=128)
 def is_greeting(query: str) -> bool:
     """Checks if the query is a pure greeting."""
     if not query:
@@ -30,6 +47,8 @@ def is_greeting(query: str) -> bool:
     contains_task = any(keyword in cleaned for keyword in TASK_KEYWORDS)
     return cleaned in GREETINGS and len(words) <= 3 and not contains_task
 
+
+@lru_cache(maxsize=128)
 def is_formatting_request(query: str) -> bool:
     """Checks if the query is primarily a formatting request."""
     if not query:
@@ -52,6 +71,8 @@ def is_formatting_request(query: str) -> bool:
 
     return False
 
+
+@lru_cache(maxsize=128)
 def extract_diet_preference(query: str) -> str:
     """Extracts dietary preference from the query."""
     q = query.lower()
@@ -63,6 +84,8 @@ def extract_diet_preference(query: str) -> str:
         return "vegetarian"
     return "any"
 
+
+@lru_cache(maxsize=128)
 def extract_diet_goal(query: str) -> str:
     """Extracts diet goal from the query."""
     q = query.lower()
@@ -76,18 +99,29 @@ def extract_diet_goal(query: str) -> str:
         return "weight gain"
     return "diet"
 
+
+@lru_cache(maxsize=128)
 def extract_regional_preference(query: str) -> str:
     """Extracts regional preference from the query."""
     q = query.lower()
     match = re.search(
-        r"\b((south|north|west|east)\s+indian|bengali|punjabi|maharashtrian|gujarati|tamil|kannada|telugu|malayalam|kanyakumari|odisha|oriya|bhubaneswar|cuttack|angul)\b",
+        r"\b(?:south indian|north indian|west indian|east indian|bengali|punjabi|maharashtrian|gujarati|"
+        r"tamil|kannada|telugu|malayalam|kanyakumari|odisha|oriya|bhubaneswar|cuttack|angul)\b",
         q
     )
     if match:
-        return " ".join([word.capitalize() for word in match.group(0).split()])
+        return " ".join(word.capitalize() for word in match.group(0).split())
     return "Indian"
 
+
+@lru_cache(maxsize=128)
 def contains_table_request(query: str) -> bool:
     """Checks if the query contains a request for tabular format."""
     q = query.lower()
     return any(k in q for k in ["table", "tabular", "chart", "in a table", "in table format", "as a table"])
+
+
+def is_follow_up_query(query: str) -> bool:
+    """Detects follow-up intent like 'make it veg' or 'same but for weight gain'."""
+    q = query.lower()
+    return any(p in q for p in ["same but", "make it", "change to", "instead", "now", "also"])
