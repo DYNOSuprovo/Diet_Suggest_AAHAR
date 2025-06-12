@@ -16,11 +16,11 @@ from langchain_google_genai import GoogleGenerativeAI
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- Download & Extract DB ---
+# --- Download & Extract Vector DB ---
 def download_and_extract_db():
     url = "https://huggingface.co/datasets/Dyno1307/chromadb-diet/resolve/main/db.zip"
     zip_path = "/tmp/db.zip"
-    extract_path = "/tmp/chroma_db"  # Must match persist_directory in embedding_utils
+    extract_path = "/tmp/chroma_db"  # MUST match embedding_utils.py
 
     try:
         print("⬇️ Downloading Chroma DB zip...")
@@ -38,7 +38,7 @@ def download_and_extract_db():
         print("❌ Error downloading/extracting DB:", e)
         raise HTTPException(status_code=500, detail="Failed to prepare Vector DB.")
 
-# --- Load Environment Variables ---
+# --- Environment Setup ---
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -73,17 +73,16 @@ if GOOGLE_CREDS_JSON:
 else:
     logging.info("ℹ️ GOOGLE_CREDS_JSON not set. Skipping sheet logging.")
 
-# --- Initialize FastAPI ---
+# --- FastAPI App Init ---
 app = FastAPI(
     title="Indian Diet Recommendation API",
     description="A backend API for personalized Indian diet suggestions.",
     version="0.1.0",
 )
-
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(SessionMiddleware, secret_key=FASTAPI_SECRET_KEY)
 
-# --- Local Imports ---
+# --- Import Local Modules ---
 from query_analysis import (
     is_greeting, is_formatting_request, contains_table_request,
     extract_diet_preference, extract_diet_goal, extract_regional_preference
@@ -95,19 +94,19 @@ from llm_chains import (
 from embedding_utils import setup_vector_database
 from groq_integration import cached_groq_answers
 
-# --- LLM & VectorDB Setup ---
+# --- LLM & Vector DB Setup ---
 llm_gemini = GoogleGenerativeAI(
     model="gemini-1.5-flash",
     google_api_key=GEMINI_API_KEY,
     temperature=0.5
 )
 
-# --- DOWNLOAD DB BEFORE SETUP ---
 download_and_extract_db()
 
 try:
-    db, _ = setup_vector_database()
-    logging.info("✅ Vector DB initialized.")
+    db, _ = setup_vector_database(chroma_db_directory="/tmp/chroma_db")
+    count = len(db.get()['documents'])
+    logging.info(f"✅ Vector DB initialized with {count} documents.")
 except Exception as e:
     logging.error(f"❌ Vector DB init error: {e}")
     raise HTTPException(status_code=500, detail="Vector DB init failed")
@@ -123,7 +122,7 @@ except Exception as e:
 conversational_qa_chain = setup_conversational_qa_chain(qa_chain)
 merge_prompt_default, merge_prompt_table = define_merge_prompt_templates()
 
-# --- Schema ---
+# --- Pydantic Schema ---
 class ChatRequest(BaseModel):
     query: str
     session_id: str = None
@@ -146,8 +145,7 @@ async def chat(chat_request: ChatRequest, request: Request):
     logging.info(f"🔍 Extracted: {user_params}")
 
     chat_history = get_session_history(session_id).messages
-
-    rag_output = "No answer from RAG."  # Default fallback
+    rag_output = "No answer from RAG."  # Fallback
 
     try:
         rag_result = await conversational_qa_chain.ainvoke({
@@ -155,9 +153,8 @@ async def chat(chat_request: ChatRequest, request: Request):
             "chat_history": chat_history,
             **user_params
         }, config={"configurable": {"session_id": session_id}})
-
         rag_output = rag_result
-        logging.info(f"✅ RAG Chain Raw Output: {rag_output[:100]}...")
+        logging.info(f"✅ RAG Chain Raw Output: {str(rag_output)[:100]}...")
     except Exception as e:
         logging.error(f"❌ RAG error: {e}", exc_info=True)
         rag_output = "Error while retrieving response from knowledge base."
@@ -177,22 +174,18 @@ async def chat(chat_request: ChatRequest, request: Request):
     try:
         merge_prompt = merge_prompt_table if contains_table_request(user_query) else merge_prompt_default
 
-        rag_section_content = f"Primary RAG Answer:\n{rag_output}"
-        additional_suggestions_section_content = (
-            f"Additional Suggestions (for fallback or enhancement):\n"
-            f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
-            f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
-            f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
-        )
-
         final_output = await llm_gemini.ainvoke(merge_prompt.format(
-            rag_section=rag_section_content,
-            additional_suggestions_section=additional_suggestions_section_content,
+            rag_section=f"Primary RAG Answer:\n{rag_output}",
+            additional_suggestions_section=(
+                f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
+                f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
+                f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
+            ),
             **user_params
         ))
     except Exception as e:
         logging.error(f"❌ Merge error: {e}", exc_info=True)
-        final_output = "Something went wrong while combining AI suggestions. Please try again."
+        final_output = "Something went wrong while combining AI suggestions."
 
     get_session_history(session_id).add_user_message(user_query)
     get_session_history(session_id).add_ai_message(final_output)
