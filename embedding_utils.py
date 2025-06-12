@@ -7,7 +7,7 @@ from langchain_community.vectorstores import Chroma
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-GOOGLE_DRIVE_FILE_ID = "1uVdkPNgcl_QJ5j5i3kM-7egGTy65E4oB"  # replace with your file ID
+GOOGLE_DRIVE_FILE_ID = "1FiUvNdx9mVNpk1Mek5SAzezPGpJIwu5-"  # replace with your file ID
 DEST_ZIP = "vector_db.zip"
 EXTRACT_DIR = "db"
 
