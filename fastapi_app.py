@@ -1,8 +1,8 @@
 import os
 import json
+import logging
 import zipfile
 import requests
-import logging
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -16,20 +16,16 @@ from langchain_google_genai import GoogleGenerativeAI
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# --- Download & Extract Vector DB ---
+# --- Download & Extract DB ---
 def download_and_extract_db():
-    url = "https://drive.google.com/file/d/1FiUvNdx9mVNpk1Mek5SAzezPGpJIwu5-/view?usp=drive_link"  # 🔁 Replace with your actual file ID
+    url = "https://huggingface.co/datasets/Dyno1307/chromadb-diet/resolve/main/db.zip"
     zip_path = "/tmp/db.zip"
-    extract_path = "/tmp/chroma_db"
-
-    # Skip if already extracted
-    if os.path.exists(os.path.join(extract_path, 'index')):
-        print("✅ Chroma DB already exists. Skipping download.")
-        return
+    extract_path = "/tmp/chroma_db"  # Must match persist_directory in embedding_utils
 
     try:
         print("⬇️ Downloading Chroma DB zip...")
         response = requests.get(url)
+        response.raise_for_status()
         with open(zip_path, "wb") as f:
             f.write(response.content)
 
@@ -37,9 +33,9 @@ def download_and_extract_db():
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(extract_path)
 
-        print("✅ Vector DB downloaded and extracted.")
+        print("✅ Vector DB extracted.")
     except Exception as e:
-        print(f"❌ Error downloading/extracting DB: {e}")
+        print("❌ Error downloading/extracting DB:", e)
         raise HTTPException(status_code=500, detail="Failed to prepare Vector DB.")
 
 # --- Load Environment Variables ---
@@ -99,15 +95,15 @@ from llm_chains import (
 from embedding_utils import setup_vector_database
 from groq_integration import cached_groq_answers
 
-# --- Download vector DB from cloud storage ---
-download_and_extract_db()
-
 # --- LLM & VectorDB Setup ---
 llm_gemini = GoogleGenerativeAI(
     model="gemini-1.5-flash",
     google_api_key=GEMINI_API_KEY,
     temperature=0.5
 )
+
+# --- DOWNLOAD DB BEFORE SETUP ---
+download_and_extract_db()
 
 try:
     db, _ = setup_vector_database()
@@ -151,21 +147,21 @@ async def chat(chat_request: ChatRequest, request: Request):
 
     chat_history = get_session_history(session_id).messages
 
-    # --- RAG ---
-    rag_output = "No answer from RAG."
+    rag_output = "No answer from RAG."  # Default fallback
+
     try:
         rag_result = await conversational_qa_chain.ainvoke({
             "query": user_query,
             "chat_history": chat_history,
             **user_params
         }, config={"configurable": {"session_id": session_id}})
+
         rag_output = rag_result
         logging.info(f"✅ RAG Chain Raw Output: {rag_output[:100]}...")
     except Exception as e:
         logging.error(f"❌ RAG error: {e}", exc_info=True)
         rag_output = "Error while retrieving response from knowledge base."
 
-    # --- Groq Suggestions ---
     try:
         groq_suggestions = cached_groq_answers(
             query=user_query,
@@ -178,24 +174,26 @@ async def chat(chat_request: ChatRequest, request: Request):
         logging.error(f"❌ Groq error: {e}")
         groq_suggestions = {"llama": "Error", "mixtral": "Error", "gemma": "Error"}
 
-    # --- Merge ---
     try:
         merge_prompt = merge_prompt_table if contains_table_request(user_query) else merge_prompt_default
+
+        rag_section_content = f"Primary RAG Answer:\n{rag_output}"
+        additional_suggestions_section_content = (
+            f"Additional Suggestions (for fallback or enhancement):\n"
+            f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
+            f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
+            f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
+        )
+
         final_output = await llm_gemini.ainvoke(merge_prompt.format(
-            rag_section=f"Primary RAG Answer:\n{rag_output}",
-            additional_suggestions_section=(
-                f"Additional Suggestions (for fallback or enhancement):\n"
-                f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
-                f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
-                f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
-            ),
+            rag_section=rag_section_content,
+            additional_suggestions_section=additional_suggestions_section_content,
             **user_params
         ))
     except Exception as e:
         logging.error(f"❌ Merge error: {e}", exc_info=True)
         final_output = "Something went wrong while combining AI suggestions. Please try again."
 
-    # --- Session History ---
     get_session_history(session_id).add_user_message(user_query)
     get_session_history(session_id).add_ai_message(final_output)
 
