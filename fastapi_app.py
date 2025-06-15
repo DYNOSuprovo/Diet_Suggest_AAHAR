@@ -25,20 +25,26 @@ def download_and_extract_db():
     zip_path = "/tmp/db.zip"
     extract_path = "/tmp/chroma_db"
 
+    # Skip if already extracted
+    if os.path.exists(os.path.join(extract_path, "index")):
+        print("✅ Chroma DB already exists, skipping download.")
+        return
+
     try:
-        print("⬇️ Downloading Chroma DB zip...")
-        response = requests.get(url)
+        print("⬇️ Downloading Chroma DB zip from HuggingFace...")
+        response = requests.get(url, timeout=30)
         response.raise_for_status()
+
         with open(zip_path, "wb") as f:
             f.write(response.content)
 
-        print("📦 Extracting zip...")
+        print("📦 Extracting zip to /tmp...")
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(extract_path)
 
-        print("✅ Vector DB extracted.")
+        print("✅ Vector DB extracted successfully.")
     except Exception as e:
-        print("❌ Error downloading/extracting DB:", e)
+        print("❌ Error downloading or extracting Vector DB:", str(e))
         raise HTTPException(status_code=500, detail="Failed to prepare Vector DB.")
 
 # --- Environment Setup ---
