@@ -24,6 +24,11 @@ TASK_KEYWORDS = {
     "diabetes", "bp", "sugar", "pressure", "cholesterol"
 }
 
+GENERIC_INTENT_PHRASES = {
+    "who are you", "who created you", "what is this", "what are you", "where am i",
+    "what do you do", "what can you do", "lol", "lmao", "haha", "what"
+}
+
 FORMATTING_KEYWORDS = {
     "table", "tabular", "chart", "format", "list", "bullet", "points", "itemize", "enumerate",
     "structured", "organized"
@@ -63,6 +68,8 @@ def is_generic_query(query: str) -> bool:
     q = clean_query(query)
     words = q.split()
     if len(words) <= 3 and not any(k in q for k in TASK_KEYWORDS):
+        return True
+    if q in GENERIC_INTENT_PHRASES:
         return True
     return False
 
@@ -146,4 +153,3 @@ def extract_all_metadata(query: str) -> dict:
         "is_greeting": is_greeting(query),
         "is_generic": is_generic_query(query)
     }
-
