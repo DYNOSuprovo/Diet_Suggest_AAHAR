@@ -5,16 +5,15 @@ from functools import lru_cache
 from typing import Optional, Dict, Any
 
 # Configure logging for better insights
-# Ensure logging is configured to output to standard error or a file where it can be monitored.
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Core Keyword Sets ---
-# These sets are expanded to improve the accuracy of query classification.
 GREETINGS = {
     "hi", "hello", "hey", "namaste", "yo", "vanakkam", "bonjour", "salaam",
-    "good morning", "good afternoon", "good evening", "heelo", # Added 'heelo' from user logs
+    "good morning", "good afternoon", "good evening", "heelo",
     "how are you", "you there", "are you there", "sup", "howdy",
-    "greetings", "aloha", "hola", "ciao", "wassup", "what's up" # Combined from first snippet
+    "greetings", "aloha", "hola", "ciao", "wassup", "what's up",
+    "hello there", "can you hear me", "do you understand"
 }
 
 TASK_KEYWORDS = {
@@ -22,84 +21,87 @@ TASK_KEYWORDS = {
     "weight", "gain", "loss", "muscle", "mass", "healthy", "unhealthy",
     "calorie", "protein", "fiber", "carb", "fat", "nutrition", "nutrients",
     "vegan", "veg", "non-veg", "non veg", "vegetarian", "nonvegetarian",
-    "south", "north", "east", "west", "india", "indian", # Explicitly added 'indian'
+    "south", "north", "east", "west", "india", "indian",
     "bengali", "punjabi", "maharashtrian", "gujarati", "tamil", "kannada",
     "telugu", "malayalam", "kanyakumari", "odisha", "oriya", "bhubaneswar",
-    "cuttack", "angul", "rajasthan", "jaisalmir", # Added Jaisalmir and Rajasthan for regional context
-    "diabetes", "bp", "sugar", "pressure", "cholesterol", "diabetic", "hypertension", "heart disease" # Expanded disease terms
-    # No significant unique TASK_KEYWORDS in first snippet to add here.
+    "cuttack", "angul", "rajasthan", "jaisalmir",
+    "diabetes", "bp", "sugar", "pressure", "cholesterol", "diabetic", "hypertension", "heart disease",
+    "mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad", "pune", "ahmedabad", # Cities for regional context
+    "kidney", "renal", "liver", "hepatic", "thyroid", "hypothyroid", "hyperthyroid", "pcos", "pcod", # Expanded diseases
+    "recipes", "recipe", "dishes", "dish" # Common food-related terms
 }
 
-# GENERIC_INTENT_PHRASES: More strictly for non-diet, meta-questions or pure exclamations.
-# These queries typically don't require a diet suggestion.
+# GENERIC_INTENT_PHRASES: Strictly for non-diet, meta-questions or pure exclamations.
 GENERIC_INTENT_PHRASES = {
     "who are you", "who created you", "what is this", "what are you", "where am i",
     "what do you do", "what can you do", "lol", "lmao", "haha", "what", "tell me about yourself",
-    "explain yourself", "can you help", "how are things", "what's up", "anything else",
-    "help", "help me", "what can you help with", "what services", "what functions", # From first snippet
-    "how do you work", "how does this work", "explain this", "what's this for", # From first snippet
-    "hmm", "ok", "okay", "cool", "nice", "wow", "interesting", "really", # From first snippet
-    "seriously", "no way", "awesome", "great", "something", "anything", "whatever", # From first snippet
-    "i don't know", "not sure", "maybe", "perhaps", "could be", "might be", # From first snippet
-    "sort of", "kind of", "how are you", "how's it going", "what's new", # From first snippet
-    "what's happening", "any updates", "tell me something", "surprise me", "entertain me", # From first snippet
-    "test", "testing", "check", "checking", "are you there", "are you working", # From first snippet
-    "hello there", "can you hear me", "do you understand" # From first snippet
+    "explain yourself", "can you help", "how are things", "anything else",
+    "help", "help me", "what can you help with", "what services", "what functions",
+    "how do you work", "how does this work", "explain this", "what's this for",
+    "hmm", "ok", "okay", "cool", "nice", "wow", "interesting", "really",
+    "seriously", "no way", "awesome", "great", "something", "anything", "whatever",
+    "i don't know", "not sure", "maybe", "perhaps", "could be", "might be",
+    "sort of", "kind of", "what's new", "what's happening", "any updates",
+    "tell me something", "surprise me", "entertain me", "test", "testing",
+    "check", "checking", "are you working", "ty", "thx", "appreciate",
+    "sorry", "apologize", "my bad", "oops", "bye", "goodbye", "see you", "later",
+    "farewell", "ciao", "just kidding", "just joking"
 }
 
-# Pattern-based generic detection from the first snippet (can be useful for short, non-phrase matches)
+# Pattern-based generic detection (for short, non-phrase matches like "?", "ok")
 GENERIC_PATTERNS = [
-    r'^(what|how|why|when|where|who)\s*\?*$',  # Single question words
-    r'^(yes|no|yeah|nah|yep|nope|sure|fine|ok|okay)\s*$',  # Simple responses
-    r'^(thanks|thank you|ty|thx|appreciate)\s*$',  # Gratitude
-    r'^(sorry|apologize|my bad|oops)\s*$',  # Apologies
-    r'^(bye|goodbye|see you|later|farewell|ciao)\s*$',  # Farewells
-    r'^\w{1,2}$',  # Very short responses (1-2 chars)
-    r'^[a-z]{1,3}$',  # Short letter combinations
-    r'^\d+$',  # Just numbers
-    r'^[?!.]{1,3}$',  # Just punctuation
-    r'^(hm+|um+|uh+|ah+|oh+)\s*$'  # Thinking sounds
+    r'^(what|how|why|when|where|who)\s*\?*$',
+    r'^(yes|no|yeah|nah|yep|nope|sure|fine|ok|okay)\s*$',
+    r'^(thanks|thank you)\s*$',
+    r'^(sorry|my bad)\s*$',
+    r'^(bye|goodbye)\s*$',
+    r'^\w{1,2}$', # Very short words like "uh", "um", "ah"
+    r'^[?!.]{1,3}$', # Just punctuation
+    r'^(hm+|um+|uh+|ah+|oh+)\s*$'
 ]
-
 
 FORMATTING_KEYWORDS = {
     "table", "tabular", "chart", "format", "list", "bullet", "points", "itemize", "enumerate",
-    "structured", "organized", "paragraph", "in paragraph", "in table", "line by line", # Added paragraph and line by line
-    "grid", "column", "row", "spreadsheet", "csv" # From first snippet
+    "structured", "organized", "paragraph", "in paragraph", "in table", "line by line",
+    "grid", "column", "row", "spreadsheet", "csv", # Table-related
+    "briefly", "summary", "summarize", "concise", "short", "long", "detailed" # Length/style related
 }
 
-# FILLER_WORDS: Used to filter out less informative words in short queries.
+MODIFICATION_KEYWORDS = { # New set for explicit modification requests
+    "remove", "delete", "exclude", "omit", "without", "no", "minus",
+    "add", "include", "with", "plus",
+    "change", "modify", "update", "alter", "different", "another", "alternative", "variation"
+}
+
 FILLER_WORDS = {
     "in", "a", "as", "give", "me", "show", "it", "that", "please", "can", "you",
     "the", "for", "my", "to", "with", "want", "now", "like", "need", "i", "am", "is",
     "how", "what", "do", "you", "just", "and", "or", "but", "an", "on", "at", "from",
-    "about", "some", "any", "this", "that", "get", "make", "create", "build", # From first snippet
-    "generate", "provide", "help", "assist" # From first snippet
+    "about", "some", "any", "this", "that", "get", "make", "create", "build",
+    "generate", "provide", "help", "assist", "a bit", "a little", "of course"
 }
 
 REGION_KEYWORDS = [
     "south indian", "north indian", "east indian", "west indian", "bengali", "punjabi",
     "maharashtrian", "gujarati", "tamil", "kannada", "telugu", "malayalam", "odisha",
     "oriya", "kanyakumari", "bhubaneswar", "cuttack", "angul", "rajasthan", "jaisalmir",
-    "mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad", "pune", "ahmedabad" # From first snippet (cities)
+    "mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad", "pune", "ahmedabad",
+    "kerala", "andhra", "telangana", "uttar pradesh", "bihar", "west bengal", "goa", # More regions
+    "haryana", "himachal", "jammu", "kashmir", "karnataka", "madhya pradesh", "maharashtra",
+    "manipur", "meghalaya", "mizoram", "nagaland", "punjab", "sikkim", "tripura", "uttarakhand"
 ]
 
 DISEASE_KEYWORDS = {
-    "diabetes": ["diabetes", "sugar", "diabetic", "glucose", "insulin"], # Combined with first snippet keywords
-    "blood pressure": ["bp", "blood pressure", "pressure", "hypertension", "high bp", "low bp"], # Combined
-    "cholesterol": ["cholesterol", "lipid", "heart disease", "high cholesterol", "hdl", "ldl", "triglycerides"], # Combined
-    "heart disease": ["heart", "cardiac", "cardiovascular"], # From first snippet, ensure no conflict
-    "kidney": ["kidney", "renal", "nephritis"], # From first snippet
-    "liver": ["liver", "hepatic", "fatty liver"], # From first snippet
-    "thyroid": ["thyroid", "hypothyroid", "hyperthyroid"], # Added common disease
-    "pcos": ["pcos", "pcod"] # Added common disease
-}
-
-# Conversation context patterns from first snippet
-CONVERSATION_STARTERS = {
-    "i want", "i need", "can you", "could you", "would you", "will you",
-    "how to", "how do i", "what should", "should i", "tell me",
-    "explain", "describe", "define", "what is", "what are"
+    "diabetes": ["diabetes", "sugar", "diabetic", "glucose", "insulin", "blood sugar"],
+    "blood pressure": ["bp", "blood pressure", "pressure", "hypertension", "high bp", "low bp"],
+    "cholesterol": ["cholesterol", "lipid", "heart disease", "high cholesterol", "hdl", "ldl", "triglycerides", "cardiac"],
+    "kidney": ["kidney", "renal", "nephritis", "kidney stones"],
+    "liver": ["liver", "hepatic", "fatty liver", "jaundice"],
+    "thyroid": ["thyroid", "hypothyroid", "hyperthyroid", "thyroxin"],
+    "pcos": ["pcos", "pcod", "polycystic ovary syndrome"],
+    "digestion": ["digestion", "digestive", "gut health", "irritable bowel", "constipation", "diarrhea"], # New
+    "anemia": ["anemia", "iron deficiency", "low iron"], # New
+    "arthritis": ["arthritis", "joint pain", "gout"] # New
 }
 
 
@@ -107,39 +109,41 @@ CONVERSATION_STARTERS = {
 
 def clean_query(query: str) -> str:
     """
-    Cleans the input query:
-    1. Removes punctuation. (Second snippet's aggressive punctuation removal is generally better)
-    2. Converts to lowercase.
-    3. Strips leading/trailing whitespace.
+    Cleans the input query: removes punctuation, converts to lowercase,
+    and normalizes whitespace.
     """
     if not query:
         return ""
-    # Use the more aggressive punctuation removal from the second snippet
     cleaned = query.translate(str.maketrans('', '', string.punctuation)).strip().lower()
-    # Add back explicit whitespace normalization for safety (from first snippet)
-    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip() # Normalize multiple spaces
     return cleaned
 
 @lru_cache(maxsize=128)
 def is_greeting(query: str) -> bool:
     """
     Checks if the query is a simple greeting.
-    A greeting is short and does not contain clear task-oriented keywords.
+    A greeting is typically short and does not contain clear task-oriented keywords.
     """
     cleaned = clean_query(query)
     words = cleaned.split()
 
-    # Check for direct matches in GREETINGS set
+    # Direct match for efficiency
     if cleaned in GREETINGS:
         logging.info(f"✨ Detected exact greeting: '{query}'")
         return True
 
-    # Check for longer greetings that don't contain task keywords (from first snippet logic)
-    # Combined with the second snippet's focus on non-task words
-    contains_task = any(keyword in cleaned for keyword in TASK_KEYWORDS)
-    if not contains_task and len(words) <= 5 and any(g in cleaned for g in GREETINGS):
-        logging.info(f"✨ Detected indirect greeting: '{query}'")
-        return True
+    # Check if a significant portion are greeting words and no task words
+    greeting_words_in_query = [w for w in words if w in GREETINGS]
+    if greeting_words_in_query and not any(k in cleaned for k in TASK_KEYWORDS):
+        # If it contains greeting words and is short (up to 5 words), and no task keywords
+        if len(words) <= 5:
+            logging.info(f"✨ Detected indirect greeting (short & non-task): '{query}'")
+            return True
+        # If a high percentage of non-filler words are greetings
+        non_filler_words = [w for w in words if w not in FILLER_WORDS]
+        if len(non_filler_words) > 0 and len(greeting_words_in_query) / len(non_filler_words) >= 0.7:
+             logging.info(f"✨ Detected indirect greeting (high greeting word density): '{query}'")
+             return True
 
     return False
 
@@ -147,12 +151,11 @@ def is_greeting(query: str) -> bool:
 def is_generic_query(query: str) -> bool:
     """
     Checks if the query is truly generic, non-task-oriented, or a meta-question.
-    This function should return True only if the query cannot be classified as a greeting
-    or a task-oriented request. This combines the robust logic from the second snippet
-    with some pattern matching from the first.
+    This function returns True only if the query cannot be classified as a greeting,
+    a task-oriented request, or a primary formatting/modification request.
     """
-    if not query: # Added from first snippet for safety
-        return True # A blank query could be considered generic
+    if not query:
+        return True # Empty query is generic
 
     q = clean_query(query)
     words = q.split()
@@ -162,36 +165,36 @@ def is_generic_query(query: str) -> bool:
         logging.info(f"❓ Detected generic (phrase match): '{query}'")
         return True
 
-    # Rule 2: Pattern matching from the first snippet
+    # Rule 2: Pattern matching (e.g., single question words, simple responses)
     for pattern in GENERIC_PATTERNS:
-        if re.match(pattern, q, re.IGNORECASE):
+        if re.match(pattern, q): # Removed IGNORECASE as clean_query makes it lowercase
             logging.info(f"🔍 Generic (pattern match): {query}")
             return True
 
-    # Rule 3: Very short queries (1-4 words) that are NOT greetings and contain NO task/formatting keywords.
+    # Rule 3: Very short queries (1-4 words) that are NOT greetings and contain NO task/formatting/modification keywords.
     if 1 <= len(words) <= 4:
         if not is_greeting(query) and \
            not any(k in q for k in TASK_KEYWORDS) and \
-           not any(k in q for k in FORMATTING_KEYWORDS):
-            logging.info(f"❓ Detected generic (short, no task/format, not greeting): '{query}'")
+           not any(k in q for k in FORMATTING_KEYWORDS) and \
+           not any(k in q for k in MODIFICATION_KEYWORDS):
+            logging.info(f"❓ Detected generic (short, no specific keywords): '{query}'")
             return True
 
-    # Rule 4: Queries where all non-filler words are absent or very few, and no task/formatting keywords.
+    # Rule 4: Queries where all non-filler words are absent or very few, and no task/formatting/modification keywords.
     non_filler_words = [w for w in words if w not in FILLER_WORDS]
     if len(non_filler_words) == 0: # All words are fillers
-         if not is_greeting(query) and \
-            not any(k in q for k in TASK_KEYWORDS) and \
-            not any(k in q for k in FORMATTING_KEYWORDS):
-            logging.info(f"❓ Detected generic (all fillers, no task/format, not greeting): '{query}'")
+        if not is_greeting(query) and \
+           not any(k in q for k in TASK_KEYWORDS) and \
+           not any(k in q for k in FORMATTING_KEYWORDS) and \
+           not any(k in q for k in MODIFICATION_KEYWORDS):
+            logging.info(f"❓ Detected generic (all fillers, no specific keywords): '{query}'")
             return True
 
-    # Rule 5: Partial phrase matching for longer queries (from first snippet logic)
-    # Re-evaluating this; Rule 1/3/4 cover this better. Removing for simplicity as `q in GENERIC_INTENT_PHRASES` is more direct.
-    # The new logic is more explicit about generic conditions.
-
-    # If it contains any task or formatting keyword, it's NOT generic from the backend's perspective.
-    if any(k in q for k in TASK_KEYWORDS) or any(k in q for k in FORMATTING_KEYWORDS):
-        logging.info(f"🎯 Not generic (contains task or formatting keyword): '{query}'")
+    # If it contains any task, formatting, or modification keyword, it's NOT generic.
+    if any(k in q for k in TASK_KEYWORDS) or \
+       any(k in q for k in FORMATTING_KEYWORDS) or \
+       any(k in q for k in MODIFICATION_KEYWORDS):
+        logging.info(f"🎯 Not generic (contains specific task/format/mod keyword): '{query}'")
         return False
 
     return False
@@ -199,9 +202,8 @@ def is_generic_query(query: str) -> bool:
 @lru_cache(maxsize=128)
 def is_formatting_request(query: str) -> bool:
     """
-    Checks if the query primarily asks for output formatting,
-    considering if it's a standalone formatting request or part of a larger task.
-    Uses refined logic from the second snippet.
+    Checks if the query primarily asks for output formatting.
+    This is stricter for a standalone formatting request.
     """
     if not query:
         return False
@@ -213,18 +215,20 @@ def is_formatting_request(query: str) -> bool:
     if not contains_format_keyword:
         return False
 
-    # Calculate ratio of formatting/filler words to total non-filler words
-    relevant_words = [w for w in words if w not in FILLER_WORDS]
-    formatting_relevant_words = [w for w in relevant_words if w in FORMATTING_KEYWORDS]
+    # Calculate ratio of formatting/modification/filler words to total non-filler words
+    non_task_words = [w for w in words if w not in TASK_KEYWORDS]
+    
+    formatting_relevant_words = [w for w in non_task_words if w in FORMATTING_KEYWORDS or w in MODIFICATION_KEYWORDS or w in FILLER_WORDS]
 
-    # If a significant portion of non-filler words are formatting keywords, it's a primary formatting request
-    if len(relevant_words) > 0 and len(formatting_relevant_words) / len(relevant_words) >= 0.75: # Increased threshold for primary formatting intent
-        logging.info(f"⚙️ Formatting request (high formatting keyword density): '{query}'")
+    # If the query contains formatting/modification keywords AND is relatively short/predominantly these words,
+    # and doesn't also contain strong task keywords, it's likely a primary formatting/modification request.
+    if len(non_task_words) > 0 and len(formatting_relevant_words) / len(non_task_words) >= 0.75:
+        logging.info(f"⚙️ Formatting/Modification request (high keyword density, low task): '{query}'")
         return True
-
-    # Simple check for very short, direct formatting requests
-    if len(words) <= 3 and contains_format_keyword and not any(k in cleaned for k in TASK_KEYWORDS):
-        logging.info(f"⚙️ Formatting request (very short & direct, no task): '{query}'")
+    
+    # Specific check for very short queries that are direct formatting/modification commands
+    if len(words) <= 4 and contains_format_keyword and not any(k in cleaned for k in TASK_KEYWORDS):
+        logging.info(f"⚙️ Formatting/Modification request (very short & direct, no task): '{query}'")
         return True
 
     return False
@@ -233,7 +237,6 @@ def is_formatting_request(query: str) -> bool:
 def contains_table_request(query: str) -> bool:
     """Detects if the query explicitly asks for a table format."""
     q = clean_query(query)
-    # Combined terms from both snippets
     table_indicators = [
         "table", "tabular", "chart", "in a table", "in table format",
         "as a table", "spreadsheet", "grid format", "column", "row"
@@ -244,7 +247,14 @@ def contains_table_request(query: str) -> bool:
 def contains_paragraph_request(query: str) -> bool:
     """Detects if the query explicitly asks for a paragraph format."""
     q = clean_query(query)
-    return any(k in q for k in ["paragraph", "in paragraph form", "in paragraph"])
+    return any(k in q for k in ["paragraph", "in paragraph form", "in paragraph", "prose", "text form"])
+
+@lru_cache(maxsize=128)
+def contains_modification_request(query: str) -> bool:
+    """Detects if the query explicitly asks for a modification (remove/add)."""
+    q = clean_query(query)
+    return any(k in q for k in MODIFICATION_KEYWORDS)
+
 
 @lru_cache(maxsize=128)
 def extract_diet_preference(query: str) -> str:
@@ -254,7 +264,7 @@ def extract_diet_preference(query: str) -> str:
         return "non-vegetarian"
     if "vegan" in q:
         return "vegan"
-    if "veg" in q or "vegetarian" in q or "plant based" in q: # Added "plant based"
+    if any(x in q for x in ["veg", "vegetarian", "plant based"]):
         return "vegetarian"
     return "any"
 
@@ -264,11 +274,11 @@ def extract_diet_goal(query: str) -> str:
     q = clean_query(query)
     weight_loss_patterns = [
         "lose weight", "loss weight", "cut weight", "reduce weight",
-        "lose fat", "cut fat", "slim down", "get lean", "shed pounds", "slimming", "lean" # Combined
+        "lose fat", "cut fat", "slim down", "get lean", "shed pounds", "slimming", "lean"
     ]
     weight_gain_patterns = [
         "gain weight", "weight gain", "build muscle", "muscle gain",
-        "mass gain", "bulk up", "get bigger", "add mass", "bulk", "bulking" # Combined
+        "mass gain", "bulk up", "get bigger", "add mass", "bulk", "bulking"
     ]
 
     if any(pattern in q for pattern in weight_loss_patterns):
@@ -276,10 +286,10 @@ def extract_diet_goal(query: str) -> str:
     if any(pattern in q for pattern in weight_gain_patterns):
         return "weight gain"
 
-    # Specific checks from second snippet for "loss" or "gain" not in other contexts
-    if "loss" in q and not any(kw in q for kw in ["data", "money", "time"]): # Avoid false positives
+    # Specific checks for "loss" or "gain" not in other contexts
+    if "loss" in q and not any(kw in q for kw in ["data", "money", "time", "sleep"]):
         return "weight loss"
-    if "gain" in q and not any(kw in q for kw in ["knowledge", "experience"]): # Avoid false positives
+    if "gain" in q and not any(kw in q for kw in ["knowledge", "experience", "insight"]):
         return "weight gain"
 
     return "general"
@@ -290,13 +300,11 @@ def extract_regional_preference(query: str) -> str:
     q = clean_query(query)
     for region in REGION_KEYWORDS:
         if region in q:
-            # Use title for consistency, and handle "indian" explicitly
-            if region == "indian":
-                return "Indian"
-            return region.title().replace("Indian", "").strip() or region.title() # Keep "Indian" for e.g. "South Indian"
-    # If "indian" is explicitly mentioned but no specific region, default to "Indian"
+            # Handle multi-word regions correctly: "South Indian"
+            return " ".join(word.capitalize() for word in region.split())
+    
     if "indian" in q:
-        return "Indian"
+        return "Indian" # General Indian if no specific region
     return "Indian" # Default if no specific region or "indian" is mentioned
 
 @lru_cache(maxsize=128)
@@ -313,35 +321,39 @@ def is_follow_up_query(query: str) -> bool:
     """
     Checks if the query is likely a follow-up to a previous interaction.
     Looks for common follow-up phrases or very short queries that seem to modify context.
-    Combines phrases from both snippets.
+    Now also considers explicit modification keywords like "remove".
     """
     q = clean_query(query)
-    followup_phrases = [
+    followup_phrases = {
         "same but", "make it", "change to", "instead", "now", "also",
-        "can you", "could you", "would you", "will you", # From first snippet CONVERSATION_STARTERS
+        "can you", "could you", "would you", "will you",
         "but make it", "what about", "and also", "next", "then", "continue",
-        "how about", "modify", "update", "again", "for me", "just", # Added more from second snippet
-        "different", "another", "alternative", "variation" # From first snippet
-    ]
+        "how about", "modify", "update", "again", "for me", "just",
+        "different", "another", "alternative", "variation", "reformat", "re-format",
+        # Explicit modification phrases
+        "remove this", "delete that", "exclude", "omit", "without", "no breakfast",
+        "add this", "include that"
+    }
 
-    # Check for direct follow-up phrases
-    if any(p in q for p in followup_phrases):
-        logging.info(f"🔄 Detected follow-up (phrase match): '{query}'")
+    # Check for direct follow-up phrases or explicit modification keywords
+    if any(p in q for p in followup_phrases) or any(k in q for k in MODIFICATION_KEYWORDS):
+        logging.info(f"🔄 Detected follow-up (phrase or modification keyword match): '{query}'")
         return True
 
-    # Check for very short queries with some task keywords, implying modification
+    # Check for very short queries with some task/formatting/modification keywords, implying modification
     words = q.split()
     non_filler_words = [w for w in words if w not in FILLER_WORDS]
     if len(words) <= 5 and len(non_filler_words) > 0 and len(non_filler_words) <= 3:
-        if any(k in non_filler_words for k in TASK_KEYWORDS) or any(k in non_filler_words for k in FORMATTING_KEYWORDS):
+        if any(k in non_filler_words for k in TASK_KEYWORDS) or \
+           any(k in non_filler_words for k in FORMATTING_KEYWORDS) or \
+           any(k in non_filler_words for k in MODIFICATION_KEYWORDS):
              logging.info(f"🔄 Detected follow-up (short, context-modifying): '{query}'")
              return True
 
     return False
 
-# --- Confidence Score (from first snippet, integrated into final metadata) ---
 def get_query_confidence_score(query: str) -> float:
-    """Calculate confidence score for query classification"""
+    """Calculate confidence score for query classification based on task-related content."""
     if not query:
         return 0.0
 
@@ -359,7 +371,7 @@ def get_query_confidence_score(query: str) -> float:
     meaningful_words = sum(1 for word in words if word not in FILLER_WORDS)
     meaningful_ratio = meaningful_words / len(words) if len(words) > 0 else 0
 
-    # Combine ratios for confidence score
+    # Combine ratios for confidence score (can be adjusted based on desired weighting)
     confidence = (task_ratio * 0.7) + (meaningful_ratio * 0.3)
 
     return min(confidence, 1.0)
@@ -367,66 +379,62 @@ def get_query_confidence_score(query: str) -> float:
 
 def extract_all_metadata(query: str) -> Dict[str, Any]:
     """
-    Extracts all relevant metadata from the query.
-    The primary intent type helps determine the main category of the query
-    for higher-level decision making in the backend.
+    Extracts all relevant metadata from the query, determining its primary intent.
+    The hierarchy for primary intent is: Greeting -> Formatting/Modification -> Generic -> Task.
     """
     logging.info(f"Starting analysis for query: '{query}'")
 
-    # Clean query once to avoid repeated cleaning in sub-functions
     cleaned_q = clean_query(query)
-    confidence = get_query_confidence_score(query) # Integrated confidence score
+    confidence = get_query_confidence_score(query)
 
-    # Determine primary intent type in a hierarchical manner (from second snippet)
-    # 1. Greetings: Highest priority if it's purely a greeting
+    # Determine primary intent type in a hierarchical manner
+    primary_intent_type = "generic" # Default to generic as the lowest priority
+
     if is_greeting(cleaned_q):
         primary_intent_type = "greeting"
-    # 2. Formatting Requests: Next priority if it's primarily about output format
-    #    and not primarily a task (e.g., "table please" vs "diet plan in table")
-    elif is_formatting_request(cleaned_q) and not any(k in cleaned_q for k in TASK_KEYWORDS):
-        primary_intent_type = "formatting"
-    # 3. Generic Questions: If it doesn't fit greeting or formatting and isn't task-oriented
+    # Check for a formatting/modification request that isn't also a strong task keyword query
+    elif is_formatting_request(cleaned_q) or contains_modification_request(cleaned_q):
+        # If it's *primarily* formatting/modification and not a strong task
+        if not any(k in cleaned_q for k in TASK_KEYWORDS):
+            primary_intent_type = "formatting"
+        else: # It's a formatting/modification request *within* a task query
+            primary_intent_type = "task"
     elif is_generic_query(cleaned_q):
-        primary_intent_type = "generic"
-    # 4. Task-Oriented: Default if it contains relevant task keywords
+        primary_intent_type = "generic" # This will catch remaining generic queries
     elif any(k in cleaned_q for k in TASK_KEYWORDS):
-        primary_intent_type = "task"
-    # 5. Fallback: If none of the above, it might still be treated as generic or minimal task
-    else:
-        primary_intent_type = "generic" # Or "unknown" if you want to be more explicit
+        primary_intent_type = "task" # Catch any query with task keywords not caught above
 
-    # Extract specific details only if it's relevant (i.e., not a pure greeting or generic meta-question)
+
+    # Extract specific details if it's potentially a task or formatting/modification request
     dietary_type = "any"
     goal = "general"
     region = "Indian"
     disease = None
     wants_table = False
     wants_paragraph = False
-    is_follow_up = False
-    has_task_keywords = any(keyword in cleaned_q for keyword in TASK_KEYWORDS) # From first snippet
-
-    # If the primary intent is task, or if it's a formatting request that also contains task keywords,
-    # then extract detailed diet-related metadata.
-    if primary_intent_type == "task" or (primary_intent_type == "formatting" and has_task_keywords):
+    is_follow_up_flag = False # Renamed to avoid conflict with function name
+    
+    # Extract these only if it's not a pure greeting or pure generic query (i.e., it has some intent)
+    if primary_intent_type not in ["greeting", "generic"]:
         dietary_type = extract_diet_preference(cleaned_q)
         goal = extract_diet_goal(cleaned_q)
         region = extract_regional_preference(cleaned_q)
         disease = extract_disease_condition(cleaned_q)
-        is_follow_up = is_follow_up_query(cleaned_q) # Follow-up can apply to tasks and re-formatting of tasks
+        is_follow_up_flag = is_follow_up_query(cleaned_q)
 
-    # Formatting requests can apply to any query, but they are explicit
+    # Formatting flags should always be checked if the query has formatting keywords,
+    # as they indicate a desired output style regardless of primary intent.
     wants_table = contains_table_request(cleaned_q)
     wants_paragraph = contains_paragraph_request(cleaned_q)
+    # The 'remove breakfast' type of request is primarily a modification request
+    # which implies a follow-up.
 
-    # Special handling for queries like "give in paragraph form only"
-    # If it's a pure formatting request, it might not contain other task keywords.
-    # In such cases, the backend would typically apply this formatting to the *previous* context.
-    if primary_intent_type == "formatting" and not is_follow_up and not has_task_keywords:
-        # If it's purely a formatting request without task keywords, it's implicitly a follow-up on previous context
-        is_follow_up = True
-        # The other metadata (dietary_type, goal, region, disease) should ideally come from session memory
-        # in the actual FastAPI app, not re-extracted from this pure formatting query.
-        # Here, we just ensure the formatting flags are set correctly.
+    # Final adjustment for `is_follow_up_flag`:
+    # If the primary intent is 'formatting' AND it contains modification keywords (like 'remove'),
+    # then it should definitely be a follow-up, even if `is_follow_up_query` didn't catch it broadly.
+    if primary_intent_type == "formatting" and contains_modification_request(cleaned_q):
+        is_follow_up_flag = True
+
 
     metadata = {
         "primary_intent_type": primary_intent_type,
@@ -436,14 +444,12 @@ def extract_all_metadata(query: str) -> Dict[str, Any]:
         "disease": disease,
         "wants_table": wants_table,
         "wants_paragraph": wants_paragraph,
-        "is_follow_up": is_follow_up,
-        # Flags for raw classification results, can be useful for debugging
-        "raw_is_greeting_flag": is_greeting(cleaned_q),
-        "raw_is_generic_flag": is_generic_query(cleaned_q),
-        "raw_is_formatting_request_flag": is_formatting_request(cleaned_q),
-        "confidence_score": confidence, # From first snippet
-        "query_length": len(query.split()) if query else 0, # From first snippet
-        "has_task_keywords": has_task_keywords # From first snippet
+        "is_follow_up": is_follow_up_flag, # Use the flag
+        "confidence_score": confidence,
+        "query_length": len(query.split()) if query else 0,
+        "has_task_keywords": any(k in cleaned_q for k in TASK_KEYWORDS), # Boolean for task keywords
+        "has_formatting_keywords": any(k in cleaned_q for k in FORMATTING_KEYWORDS), # Boolean for formatting keywords
+        "has_modification_keywords": any(k in cleaned_q for k in MODIFICATION_KEYWORDS) # Boolean for modification keywords
     }
     logging.info(f"Final extracted metadata: {metadata}")
     return metadata
@@ -451,44 +457,34 @@ def extract_all_metadata(query: str) -> Dict[str, Any]:
 # --- Test Cases (for demonstration and understanding) ---
 if __name__ == "__main__":
     test_queries = [
-        "hi",                                         # Greeting
-        "hello there",                                # Greeting
-        "how are you",                                # Greeting (new)
-        "what",                                       # Generic
-        "who are you",                                # Generic
-        "tell me about yourself",                     # Generic (new)
-        "can you help",                               # Generic (new)
-        "lol",                                        # Generic
-        "?",                                          # Generic (pattern from first snippet)
-        "ok",                                         # Generic (pattern from first snippet)
-        "diet plan for weight loss",                  # Task
-        "show me vegetarian diet",                    # Task with preferences
-        "table format please",                        # Formatting only (should trigger follow_up = True implicitly)
-        "make it vegan",                              # Follow-up + Preferences (short, context-modifying)
-        "give me a diet plan",                        # Task
-        "I want a vegan diet plan for weight loss",   # Task with preferences
-        "suggest diet for diabetes in north indian style", # Task with disease and region
-        "show a diet plan in table format",           # Task with formatting
-        "give in table format",                       # Formatting only (should trigger follow_up = True implicitly)
-        "in paragraph form only",                     # Formatting only (new, should trigger follow_up = True implicitly)
-        "diet",                                       # Task (vague, but still a task)
-        "healthy food",                               # Task (vague)
-        "what about a diet for muscle gain",          # Follow-up + Task
-        "same but make it non-veg",                   # Follow-up + Preferences
-        "diet for jaisalmir",                         # Task with region
-        "food for weight loss",                       # Task with goal
-        "can you give me a plan for high bp",         # Task with disease (new)
-        "I need a diet for thyroid",                  # Task with disease (new)
-        "just table",                                 # Formatting only (should trigger follow_up = True implicitly)
-        "plan for plant based diet",                  # Task with diet pref (new)
-        "something for healthy heart",                # Task with disease (new)
-        "give me some suggestions",                   # Task (vague, but asking for suggestions)
-        "diet for me",                                # Task (vague)
-        "in bullet points",                           # Formatting only (should trigger follow_up = True implicitly)
-        "what can I eat"                              # Task (vague)
+        # Greeting Tests
+        "hi", "hello there", "how are you", "what's up", "namaste",
+
+        # Generic Tests (should be classified as 'generic')
+        "what", "who are you", "tell me about yourself", "can you help", "lol", "?", "ok",
+        "help me", "how do you work", "thanks", "bye", "test", "what is this", "anything",
+
+        # Task-Oriented Tests (should be classified as 'task')
+        "diet plan for weight loss", "show me vegetarian diet", "give a Puri based diet chart for a 19 year old boy",
+        "suggest diet for diabetes in north indian style", "food for weight loss",
+        "can you give me a plan for high bp", "I need a diet for thyroid",
+        "plan for plant based diet", "something for healthy heart", "give me some suggestions",
+        "diet for me", "what can I eat", "recipes for dinner",
+
+        # Formatting/Modification Tests (should be 'formatting' or 'task' with formatting/follow-up)
+        "show a diet plan in table format", # Task + Formatting
+        "give in table format",             # Formatting + Follow-up (implicitly, based on logic)
+        "in paragraph form only",           # Formatting + Follow-up
+        "just table",                       # Formatting + Follow-up
+        "remove breakfast",                 # NEW: Modification + Follow-up (should be 'formatting')
+        "add more protein",                 # NEW: Modification + Follow-up
+        "make it vegan",                    # Follow-up + Preferences (should be 'task' with follow-up)
+        "same but make it non-veg",         # Follow-up + Preferences (should be 'task' with follow-up)
+        "can you make it shorter",          # Formatting + Follow-up
+        "no dinner"                         # NEW: Modification + Follow-up
     ]
 
-    print("--- Mixed and Consolidated Query Analysis Test Results ---")
+    print("--- Consolidated Query Analysis Test Results ---")
     for q in test_queries:
         print(f"\nQuery: '{q}'")
         metadata = extract_all_metadata(q)
