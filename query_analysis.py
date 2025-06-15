@@ -1,10 +1,10 @@
 # query_analysis.py
-# query_analysis.py
 
 import string
 import re
 import logging
 from functools import lru_cache
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -19,27 +19,38 @@ TASK_KEYWORDS = {
     "vegan", "veg", "non-veg", "non veg", "vegetarian", "nonvegetarian",
     "south", "north", "east", "west", "india", "bengali", "punjabi", "maharashtrian",
     "gujarati", "tamil", "kannada", "telugu", "malayalam", "kanyakumari",
-    "odisha", "oriya", "bhubaneswar", "cuttack", "angul"
+    "odisha", "oriya", "bhubaneswar", "cuttack", "angul", "muscle", "mass",
+    "healthy", "unhealthy", "calorie", "protein", "fiber", "carb", "fat",
+    "diabetes", "bp", "sugar", "pressure", "cholesterol"
 }
 
 FORMATTING_KEYWORDS = {
-    "table", "tabular", "chart", "format", "list", "bullet", "points", "itemize", "enumerate"
+    "table", "tabular", "chart", "format", "list", "bullet", "points", "itemize", "enumerate",
+    "structured", "organized"
 }
 
 FILLER_WORDS = {
     "in", "a", "as", "give", "me", "show", "it", "that", "please", "can", "you",
-    "the", "for", "my", "to", "with", "want"
+    "the", "for", "my", "to", "with", "want", "now", "like", "need"
 }
 
+REGION_KEYWORDS = [
+    "south indian", "north indian", "east indian", "west indian", "bengali", "punjabi",
+    "maharashtrian", "gujarati", "tamil", "kannada", "telugu", "malayalam", "odisha",
+    "oriya", "kanyakumari", "bhubaneswar", "cuttack", "angul"
+]
+
+DISEASE_KEYWORDS = {
+    "diabetes": ["diabetes", "sugar"],
+    "blood pressure": ["bp", "blood pressure", "pressure"],
+    "cholesterol": ["cholesterol", "lipid"]
+}
 
 def clean_query(query: str) -> str:
-    """Strips punctuation and lowercases the query."""
     return query.translate(str.maketrans('', '', string.punctuation)).strip().lower()
-
 
 @lru_cache(maxsize=128)
 def is_greeting(query: str) -> bool:
-    """Checks if the query is a pure greeting."""
     if not query:
         return False
     cleaned = clean_query(query)
@@ -47,35 +58,31 @@ def is_greeting(query: str) -> bool:
     contains_task = any(keyword in cleaned for keyword in TASK_KEYWORDS)
     return cleaned in GREETINGS and len(words) <= 3 and not contains_task
 
-
 @lru_cache(maxsize=128)
 def is_formatting_request(query: str) -> bool:
-    """Checks if the query is primarily a formatting request."""
     if not query:
         return False
     cleaned = clean_query(query)
     words = cleaned.split()
-
     if not any(k in cleaned for k in FORMATTING_KEYWORDS):
         return False
-
-    if len(words) <= 5:
-        non_formatting = sum(1 for w in words if w not in FORMATTING_KEYWORDS and w not in FILLER_WORDS)
-        if non_formatting <= 1:
-            logging.info(f"Query '{query}' identified as formatting request (short, specific keywords).")
-            return True
-
-    if all(w in FORMATTING_KEYWORDS or w in FILLER_WORDS for w in words):
-        logging.info(f"Query '{query}' identified as formatting request (only formatting/fillers).")
+    non_formatting = sum(1 for w in words if w not in FORMATTING_KEYWORDS and w not in FILLER_WORDS)
+    if len(words) <= 6 and non_formatting <= 1:
+        logging.info(f"⚙️ Formatting request (short): {query}")
         return True
-
+    if all(w in FORMATTING_KEYWORDS or w in FILLER_WORDS for w in words):
+        logging.info(f"⚙️ Formatting request (only formatting words): {query}")
+        return True
     return False
 
+@lru_cache(maxsize=128)
+def contains_table_request(query: str) -> bool:
+    q = clean_query(query)
+    return any(k in q for k in ["table", "tabular", "chart", "in a table", "in table format", "as a table"])
 
 @lru_cache(maxsize=128)
 def extract_diet_preference(query: str) -> str:
-    """Extracts dietary preference from the query."""
-    q = query.lower()
+    q = clean_query(query)
     if any(x in q for x in ["non-veg", "non veg", "nonvegetarian"]):
         return "non-vegetarian"
     if "vegan" in q:
@@ -84,44 +91,48 @@ def extract_diet_preference(query: str) -> str:
         return "vegetarian"
     return "any"
 
-
 @lru_cache(maxsize=128)
 def extract_diet_goal(query: str) -> str:
-    """Extracts diet goal from the query."""
-    q = query.lower()
+    q = clean_query(query)
     if any(p in q for p in ["lose weight", "loss weight", "cut weight", "reduce weight", "lose fat", "cut fat"]):
         return "weight loss"
-    if "gain weight" in q or "weight gain" in q:
+    if any(p in q for p in ["gain weight", "weight gain", "build muscle", "muscle gain", "mass gain"]):
         return "weight gain"
     if "loss" in q:
         return "weight loss"
-    if "gain" in q:
+    if "gain" in q or "bulk" in q:
         return "weight gain"
-    return "diet"
-
+    return "general"
 
 @lru_cache(maxsize=128)
 def extract_regional_preference(query: str) -> str:
-    """Extracts regional preference from the query."""
-    q = query.lower()
-    match = re.search(
-        r"\b(?:south indian|north indian|west indian|east indian|bengali|punjabi|maharashtrian|gujarati|"
-        r"tamil|kannada|telugu|malayalam|kanyakumari|odisha|oriya|bhubaneswar|cuttack|angul)\b",
-        q
-    )
-    if match:
-        return " ".join(word.capitalize() for word in match.group(0).split())
+    q = clean_query(query)
+    for region in REGION_KEYWORDS:
+        if region in q:
+            return region.title()
     return "Indian"
 
+@lru_cache(maxsize=128)
+def extract_disease_condition(query: str) -> Optional[str]:
+    q = clean_query(query)
+    for disease, keywords in DISEASE_KEYWORDS.items():
+        if any(k in q for k in keywords):
+            return disease
+    return None
 
 @lru_cache(maxsize=128)
-def contains_table_request(query: str) -> bool:
-    """Checks if the query contains a request for tabular format."""
-    q = query.lower()
-    return any(k in q for k in ["table", "tabular", "chart", "in a table", "in table format", "as a table"])
-
-
 def is_follow_up_query(query: str) -> bool:
-    """Detects follow-up intent like 'make it veg' or 'same but for weight gain'."""
-    q = query.lower()
-    return any(p in q for p in ["same but", "make it", "change to", "instead", "now", "also"])
+    q = clean_query(query)
+    followup_phrases = ["same but", "make it", "change to", "instead", "now", "also", "can you", "but make it"]
+    return any(p in q for p in followup_phrases)
+
+def extract_all_metadata(query: str) -> dict:
+    return {
+        "dietary_type": extract_diet_preference(query),
+        "goal": extract_diet_goal(query),
+        "region": extract_regional_preference(query),
+        "disease": extract_disease_condition(query),
+        "formatting": is_formatting_request(query),
+        "wants_table": contains_table_request(query),
+        "is_follow_up": is_follow_up_query(query)
+    }
