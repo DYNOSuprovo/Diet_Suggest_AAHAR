@@ -59,6 +59,14 @@ def is_greeting(query: str) -> bool:
     return cleaned in GREETINGS and len(words) <= 3 and not contains_task
 
 @lru_cache(maxsize=128)
+def is_generic_query(query: str) -> bool:
+    q = clean_query(query)
+    words = q.split()
+    if len(words) <= 3 and not any(k in q for k in TASK_KEYWORDS):
+        return True
+    return False
+
+@lru_cache(maxsize=128)
 def is_formatting_request(query: str) -> bool:
     if not query:
         return False
@@ -134,5 +142,8 @@ def extract_all_metadata(query: str) -> dict:
         "disease": extract_disease_condition(query),
         "formatting": is_formatting_request(query),
         "wants_table": contains_table_request(query),
-        "is_follow_up": is_follow_up_query(query)
+        "is_follow_up": is_follow_up_query(query),
+        "is_greeting": is_greeting(query),
+        "is_generic": is_generic_query(query)
     }
+
