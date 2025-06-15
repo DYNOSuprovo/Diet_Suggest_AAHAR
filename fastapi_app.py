@@ -1,4 +1,5 @@
 # fastapi_app.py
+
 import os
 import json
 import logging
@@ -22,7 +23,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 def download_and_extract_db():
     url = "https://huggingface.co/datasets/Dyno1307/chromadb-diet/resolve/main/db.zip"
     zip_path = "/tmp/db.zip"
-    extract_path = "/tmp/chroma_db"  # MUST match embedding_utils.py
+    extract_path = "/tmp/chroma_db"
 
     try:
         print("⬇️ Downloading Chroma DB zip...")
