@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from langchain_google_genai import GoogleGenerativeAI
 from custom_callbacks import SafeTracer
+# Import AIMessage to explicitly handle LLM outputs
+from langchain_core.messages import AIMessage 
 
 # Google Sheets logging (Ensure gspread and oauth2client are installed: pip install gspread oauth2client)
 import gspread
@@ -199,20 +201,27 @@ async def chat(chat_request: ChatRequest, request: Request):
         elif query_metadata["primary_intent_type"] == "generic":
             # Use a simpler LLM interaction for generic questions
             logging.info("Handling generic query.")
-            generic_response_content = await llm_generic.ainvoke(
+            generic_response_obj = await llm_generic.ainvoke( # Renamed variable to avoid conflict
                 generic_prompt.format(query=user_query),
                 config={"callbacks": [SafeTracer()], "configurable": {"session_id": session_id}}
             )
-            response_text = generic_response_content.content # Extract content from AIMessage
+            # Ensure we're extracting content correctly from AIMessage
+            response_text = generic_response_obj.content if isinstance(generic_response_obj, AIMessage) else str(generic_response_obj)
             
         elif query_metadata["primary_intent_type"] == "formatting" and query_metadata["is_follow_up"]:
             # This is a request to re-format a previous answer.
-            # Requires storing the *last generated diet plan* in session memory.
-            # For this example, we'll give a placeholder or re-generate if no memory.
-            last_ai_message = next((msg.content for msg in reversed(chat_history) if msg.type == 'ai'), None)
-            if last_ai_message:
+            last_ai_message_content = None
+            # Find the last actual AI diet plan response to reformat
+            for msg in reversed(chat_history):
+                # Assuming diet plans are generally longer and not just generic greetings
+                # You might need a more sophisticated way to tag 'diet plan' messages
+                if msg.type == 'ai' and msg.content and len(msg.content) > 50 and not msg.content.startswith("Namaste!") and not msg.content.startswith("I'm an AI"):
+                    last_ai_message_content = msg.content
+                    break
+
+            if last_ai_message_content:
                 logging.info("Reformatting previous response.")
-                # Use a specific merge prompt to reformat the last AI message
+                # Select the correct merge prompt for reformatting
                 if query_metadata["wants_table"]:
                     merge_prompt_for_reformat = merge_prompt_table
                 elif query_metadata["wants_paragraph"]:
@@ -220,15 +229,22 @@ async def chat(chat_request: ChatRequest, request: Request):
                 else: # Default to general merge if specific format not found but it's formatting
                     merge_prompt_for_reformat = merge_prompt_default
 
-                reformatted_content = await llm_gemini.ainvoke(
-                    merge_prompt_for_reformat.format(
-                        rag_section=f"Previous Answer:\n{last_ai_message}",
-                        additional_suggestions_section="No new suggestions needed for reformatting.", # Can be empty
-                        dietary_type="", goal="", region="" # Pass empty as context is the previous answer
-                    ),
+                # Prepare format_kwargs, ensuring all expected keys are present
+                format_kwargs = {
+                    "rag_section": f"Previous Answer:\n{last_ai_message_content}",
+                    "additional_suggestions_section": "No new suggestions needed for reformatting.",
+                    "query": user_query, # Pass user query for context if needed in prompt
+                    "dietary_type": "any", # These might come from previous session context,
+                    "goal": "general",     # but for reformat only, default/empty is fine.
+                    "region": "Indian",    # Adjust if you store full context per session.
+                    "disease_section": ""  # Ensure this is always present
+                }
+                
+                reformatted_result = await llm_gemini.ainvoke(
+                    merge_prompt_for_reformat.format(**format_kwargs),
                     config={"callbacks": [SafeTracer()], "configurable": {"session_id": session_id}}
                 )
-                response_text = reformatted_content.content
+                response_text = reformatted_result.content if isinstance(reformatted_result, AIMessage) else str(reformatted_result)
             else:
                 response_text = "I can only re-format a previous diet plan. Please ask for a diet plan first!"
                 
@@ -243,8 +259,9 @@ async def chat(chat_request: ChatRequest, request: Request):
                 "disease": query_metadata["disease"] # Pass disease info if available
             }
 
-            rag_output = "No answer from RAG."
+            rag_output_content = "No answer from RAG."
             try:
+                # conversational_qa_chain returns a string because StrOutputParser() is applied.
                 rag_result = await conversational_qa_chain.ainvoke({
                     "query": user_query,
                     "chat_history": chat_history,
@@ -253,12 +270,12 @@ async def chat(chat_request: ChatRequest, request: Request):
                     "callbacks": [SafeTracer()],
                     "configurable": {"session_id": session_id}
                 })
-                # Check if rag_result is a dict with an 'answer' key or just the content
-                rag_output = rag_result.get("answer", str(rag_result)) if isinstance(rag_result, dict) else str(rag_result)
-                logging.info(f"✅ RAG Chain Raw Output: {rag_output[:200]}...") # Log first 200 chars
+                # rag_result is already a string here from StrOutputParser
+                rag_output_content = str(rag_result) 
+                logging.info(f"✅ RAG Chain Raw Output: {rag_output_content[:200]}...") # Log first 200 chars
             except Exception as e:
                 logging.error(f"❌ RAG error during ainvoke: {e}", exc_info=True)
-                rag_output = "Error while retrieving response from knowledge base."
+                rag_output_content = "Error while retrieving response from knowledge base."
 
             groq_suggestions = {}
             try:
@@ -284,32 +301,29 @@ async def chat(chat_request: ChatRequest, request: Request):
 
             final_output_content = "Something went wrong while combining AI suggestions."
             try:
-                # Use a dict for format_kwargs to handle optional disease parameter
+                # Prepare format_kwargs, ensuring all expected keys are present
                 format_kwargs = {
-                    "rag_section": f"Primary RAG Answer:\n{rag_output}",
+                    "rag_section": f"Primary RAG Answer:\n{rag_output_content}", # Use rag_output_content (string)
                     "additional_suggestions_section": (
                         f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
                         f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
                         f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
                     ),
-                    "dietary_type": user_params["dietary_type"],
-                    "goal": user_params["goal"],
-                    "region": user_params["region"],
-                    "query": user_query # Include original query in merge prompt for better context
+                    "query": user_query, # Always provide query
+                    "dietary_type": user_params.get("dietary_type", "any"), # Provide defaults
+                    "goal": user_params.get("goal", "general"),
+                    "region": user_params.get("region", "Indian"),
+                    "disease_section": f"Disease Condition: {user_params['disease']}\n" if user_params.get("disease") else "" # Conditional string
                 }
-                if user_params["disease"]:
-                    format_kwargs["disease"] = user_params["disease"] # Add disease if present
-
-                # It's crucial that your merge_prompt templates can handle all these format_kwargs
-                # Define merge_prompt_templates needs to be updated to take `disease` if used.
-                merge_result = await llm_gemini.ainvoke(
+                
+                merge_result_obj = await llm_gemini.ainvoke( # Renamed variable
                     merge_prompt.format(**format_kwargs),
                     config={
                         "callbacks": [SafeTracer()],
                         "configurable": {"session_id": session_id}
                     }
                 )
-                final_output_content = merge_result.content # Extract content from AIMessage
+                final_output_content = merge_result_obj.content if isinstance(merge_result_obj, AIMessage) else str(merge_result_obj)
             except Exception as e:
                 logging.error(f"❌ Merge process error: {e}", exc_info=True)
                 final_output_content = "I encountered an issue generating a comprehensive diet plan. Please try again."
