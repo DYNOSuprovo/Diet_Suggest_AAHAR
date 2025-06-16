@@ -1,4 +1,5 @@
 # fastapi_app.py
+# fastapi_app.py
 
 import os
 import json
@@ -10,11 +11,10 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field # Import Field for default values and constraints
 from dotenv import load_dotenv
 from langchain_google_genai import GoogleGenerativeAI
 from custom_callbacks import SafeTracer
-# Import AIMessage to explicitly handle LLM outputs
 from langchain_core.messages import AIMessage 
 
 # Google Sheets logging (Ensure gspread and oauth2client are installed: pip install gspread oauth2client)
@@ -64,14 +64,12 @@ GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON") # This should be a JSON strin
 
 if not GEMINI_API_KEY:
     logging.critical("❌ GEMINI_API_KEY not found in .env or environment variables!")
-    # Depending on deployment, you might want to raise an exception or run in a limited mode
     raise ValueError("GEMINI_API_KEY not set. Please set it in your .env file or environment.")
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-# Suppress noisy logs from specific langchain modules
 logging.getLogger('langchain_community.chat_message_histories.in_memory').setLevel(logging.WARNING)
-logging.getLogger('httpx').setLevel(logging.WARNING) # Suppress http client logs
+logging.getLogger('httpx').setLevel(logging.WARNING)
 
 # --- Google Sheets Setup ---
 sheet = None
@@ -86,7 +84,6 @@ if GOOGLE_CREDS_JSON:
              "https://www.googleapis.com/auth/spreadsheets"]
         )
         gs_client = gspread.authorize(creds)
-        # Replace "Diet Suggest Logs" with your actual Google Sheet name
         sheet = gs_client.open("Diet Suggest Logs").sheet1 
         sheet_enabled = True
         logging.info("✅ Google Sheets connected for logging.")
@@ -101,21 +98,18 @@ else:
 app = FastAPI(
     title="Indian Diet Recommendation API",
     description="A backend API for personalized Indian diet suggestions using RAG and LLMs.",
-    version="0.2.0", # Increment version as changes are made
+    version="0.2.1", # Incremented version
 )
-# CORS configuration for frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Adjust this to specific origins in production, e.g., ["http://localhost:3000"]
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Session middleware for conversational history
 app.add_middleware(SessionMiddleware, secret_key=FASTAPI_SECRET_KEY)
 
 # --- Import Local Modules ---
-# Import the enhanced extract_all_metadata from query_analysis
 from query_analysis import extract_all_metadata 
 
 from llm_chains import (
@@ -126,17 +120,16 @@ from embedding_utils import setup_vector_database
 from groq_integration import cached_groq_answers
 
 # --- LLM & Vector DB Setup ---
+# Initialize LLM instances without hardcoding temperature/max_output_tokens
+# These will be passed dynamically via the config dict in .ainvoke()
 llm_gemini = GoogleGenerativeAI(
-    model="gemini-1.5-flash", # Using the faster flash model
-    google_api_key=GEMINI_API_KEY,
-    temperature=0.5 # A moderate temperature for balanced creativity and factualness
+    model="gemini-1.5-flash", 
+    google_api_key=GEMINI_API_KEY
 )
 
-# Initialize generic response LLM (can be a lighter model if preferred)
 llm_generic = GoogleGenerativeAI(
     model="gemini-1.5-flash", 
-    google_api_key=GEMINI_API_KEY,
-    temperature=0.7 # Slightly higher temp for more conversational replies
+    google_api_key=GEMINI_API_KEY
 )
 
 # Download and extract the database at app startup
@@ -150,12 +143,11 @@ try:
     logging.info(f"✅ Vector DB initialized with {count} documents.")
 except Exception as e:
     logging.error(f"❌ Vector DB initialization error: {e}", exc_info=True)
-    # If DB fails, the app might not function correctly for RAG queries
     raise HTTPException(status_code=500, detail="Vector DB initialization failed. Check logs for details.")
 
 # Setup LangChain components
 rag_prompt = define_rag_prompt_template()
-generic_prompt = define_generic_prompt() # Define a specific prompt for generic queries
+generic_prompt = define_generic_prompt() 
 
 qa_chain = None
 conversational_qa_chain = None
@@ -173,6 +165,9 @@ merge_prompt_default, merge_prompt_table, merge_prompt_paragraph = define_merge_
 class ChatRequest(BaseModel):
     query: str
     session_id: str = None # Optional session ID from client
+    # New optional fields for LLM parameters with validation
+    temperature: Optional[float] = Field(None, ge=0.0, le=1.0, description="Temperature for LLM creativity (0.0 to 1.0)")
+    max_output_tokens: Optional[int] = Field(None, ge=1, le=8192, description="Max tokens in LLM response (e.g., 1 to 8192)")
 
 # --- Chat Endpoint ---
 @app.post("/chat")
@@ -180,18 +175,32 @@ async def chat(chat_request: ChatRequest, request: Request):
     user_query = chat_request.query
     client_session_id = chat_request.session_id
     
+    # Get dynamic LLM parameters from request, use defaults if not provided
+    llm_temperature = chat_request.temperature if chat_request.temperature is not None else 0.5 # Default temperature
+    llm_max_output_tokens = chat_request.max_output_tokens if chat_request.max_output_tokens is not None else 2048 # Default max tokens
+
+    # Prepare config for LLM calls
+    llm_config = {
+        "callbacks": [SafeTracer()], 
+        "configurable": {
+            "session_id": session_id,
+            "temperature": llm_temperature, # Pass temperature
+            "max_output_tokens": llm_max_output_tokens # Pass max_output_tokens
+        }
+    }
+
     # Generate or retrieve session ID for conversational memory
     session_id = client_session_id or request.session.get("session_id") or f"session_{os.urandom(8).hex()}"
-    request.session["session_id"] = session_id # Store in FastAPI session for next request
+    request.session["session_id"] = session_id 
 
-    logging.info(f"📩 Incoming Query: '{user_query}' | Session: {session_id}")
+    logging.info(f"📩 Incoming Query: '{user_query}' | Session: {session_id} | Temp: {llm_temperature} | Max Tokens: {llm_max_output_tokens}")
 
     # Use the enhanced query_analysis to get all metadata
     query_metadata = extract_all_metadata(user_query)
     logging.info(f"🔍 Query Metadata: {query_metadata}")
 
     response_text = ""
-    chat_history = get_session_history(session_id).messages # Retrieve chat history for this session
+    chat_history = get_session_history(session_id).messages 
 
     try:
         # --- Intent-Based Routing ---
@@ -199,64 +208,55 @@ async def chat(chat_request: ChatRequest, request: Request):
             response_text = "Namaste! How can I assist you with a healthy Indian diet today?"
         
         elif query_metadata["primary_intent_type"] == "generic":
-            # Use a simpler LLM interaction for generic questions
             logging.info("Handling generic query.")
-            generic_response_obj = await llm_generic.ainvoke( # Renamed variable to avoid conflict
+            generic_response_obj = await llm_generic.ainvoke(
                 generic_prompt.format(query=user_query),
-                config={"callbacks": [SafeTracer()], "configurable": {"session_id": session_id}}
+                config=llm_config # Pass dynamic config
             )
-            # Ensure we're extracting content correctly from AIMessage
             response_text = generic_response_obj.content if isinstance(generic_response_obj, AIMessage) else str(generic_response_obj)
             
         elif query_metadata["primary_intent_type"] == "formatting" and query_metadata["is_follow_up"]:
-            # This is a request to re-format a previous answer.
             last_ai_message_content = None
-            # Find the last actual AI diet plan response to reformat
             for msg in reversed(chat_history):
-                # Assuming diet plans are generally longer and not just generic greetings
-                # You might need a more sophisticated way to tag 'diet plan' messages
                 if msg.type == 'ai' and msg.content and len(msg.content) > 50 and not msg.content.startswith("Namaste!") and not msg.content.startswith("I'm an AI"):
                     last_ai_message_content = msg.content
                     break
 
             if last_ai_message_content:
                 logging.info("Reformatting previous response.")
-                # Select the correct merge prompt for reformatting
                 if query_metadata["wants_table"]:
                     merge_prompt_for_reformat = merge_prompt_table
                 elif query_metadata["wants_paragraph"]:
                     merge_prompt_for_reformat = merge_prompt_paragraph
-                else: # Default to general merge if specific format not found but it's formatting
+                else: 
                     merge_prompt_for_reformat = merge_prompt_default
 
-                # Prepare format_kwargs, ensuring all expected keys are present
                 format_kwargs = {
                     "rag_section": f"Previous Answer:\n{last_ai_message_content}",
                     "additional_suggestions_section": "No new suggestions needed for reformatting.",
-                    "query": user_query, # Pass user query for context if needed in prompt
-                    "dietary_type": "any", # These might come from previous session context,
-                    "goal": "general",     # but for reformat only, default/empty is fine.
-                    "region": "Indian",    # Adjust if you store full context per session.
-                    "disease_section": ""  # Ensure this is always present
+                    "query": user_query, 
+                    "dietary_type": query_metadata.get("dietary_type", "any"), # Use extracted or default
+                    "goal": query_metadata.get("goal", "general"),     
+                    "region": query_metadata.get("region", "Indian"),    
+                    "disease_section": f"Disease Condition: {query_metadata['disease']}\n" if query_metadata.get("disease") else ""
                 }
                 
                 reformatted_result = await llm_gemini.ainvoke(
                     merge_prompt_for_reformat.format(**format_kwargs),
-                    config={"callbacks": [SafeTracer()], "configurable": {"session_id": session_id}}
+                    config=llm_config # Pass dynamic config
                 )
                 response_text = reformatted_result.content if isinstance(reformatted_result, AIMessage) else str(reformatted_result)
             else:
                 response_text = "I can only re-format a previous diet plan. Please ask for a diet plan first!"
                 
         else: # primary_intent_type is "task" or a formatting request with task keywords
-            # Proceed with the full RAG and merge pipeline for task-oriented queries
             logging.info("Handling task-oriented query (RAG + Groq + Merge).")
             
-            user_params = { # Use extracted params for the RAG chain
+            user_params = { 
                 "dietary_type": query_metadata["dietary_type"],
                 "goal": query_metadata["goal"],
                 "region": query_metadata["region"],
-                "disease": query_metadata["disease"] # Pass disease info if available
+                "disease": query_metadata["disease"] 
             }
 
             rag_output_content = "No answer from RAG."
@@ -265,24 +265,22 @@ async def chat(chat_request: ChatRequest, request: Request):
                 rag_result = await conversational_qa_chain.ainvoke({
                     "query": user_query,
                     "chat_history": chat_history,
-                    **user_params # Pass extracted user parameters to the chain
-                }, config={
-                    "callbacks": [SafeTracer()],
-                    "configurable": {"session_id": session_id}
-                })
-                # rag_result is already a string here from StrOutputParser
+                    **user_params 
+                }, config=llm_config) # Pass dynamic config
+                
                 rag_output_content = str(rag_result) 
-                logging.info(f"✅ RAG Chain Raw Output: {rag_output_content[:200]}...") # Log first 200 chars
+                logging.info(f"✅ RAG Chain Raw Output: {rag_output_content[:200]}...")
             except Exception as e:
                 logging.error(f"❌ RAG error during ainvoke: {e}", exc_info=True)
                 rag_output_content = "Error while retrieving response from knowledge base."
 
             groq_suggestions = {}
             try:
+                # Groq calls don't directly use LangChain's config. They need separate handling if Groq API supports temperature.
+                # Assuming current cached_groq_answers doesn't use temperature/max_tokens from FastAPI request directly.
                 groq_suggestions = cached_groq_answers(
                     query=user_query,
                     groq_api_key=GROQ_API_KEY,
-                    # Pass the extracted params to Groq for contextual suggestions
                     dietary_type=user_params["dietary_type"],
                     goal=user_params["goal"],
                     region=user_params["region"]
@@ -291,7 +289,6 @@ async def chat(chat_request: ChatRequest, request: Request):
                 logging.error(f"❌ Groq error during suggestions: {e}", exc_info=True)
                 groq_suggestions = {"llama": "Error", "mixtral": "Error", "gemma": "Error"}
 
-            # Select merge prompt based on formatting request
             if query_metadata["wants_table"]:
                 merge_prompt = merge_prompt_table
             elif query_metadata["wants_paragraph"]:
@@ -301,29 +298,25 @@ async def chat(chat_request: ChatRequest, request: Request):
 
             final_output_content = "Something went wrong while combining AI suggestions."
             try:
-                # Prepare format_kwargs, ensuring all expected keys are present
                 format_kwargs = {
-                    "rag_section": f"Primary RAG Answer:\n{rag_output_content}", # Use rag_output_content (string)
+                    "rag_section": f"Primary RAG Answer:\n{rag_output_content}", 
                     "additional_suggestions_section": (
                         f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
                         f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
                         f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
                     ),
-                    "query": user_query, # Always provide query
-                    "dietary_type": user_params.get("dietary_type", "any"), # Provide defaults
+                    "query": user_query, 
+                    "dietary_type": user_params.get("dietary_type", "any"), 
                     "goal": user_params.get("goal", "general"),
                     "region": user_params.get("region", "Indian"),
-                    "disease_section": f"Disease Condition: {user_params['disease']}\n" if user_params.get("disease") else "" # Conditional string
+                    "disease_section": f"Disease Condition: {user_params['disease']}\n" if user_params.get("disease") else ""
                 }
                 
-                merge_result_obj = await llm_gemini.ainvoke( # Renamed variable
+                merge_result_obj = await llm_gemini.ainvoke(
                     merge_prompt.format(**format_kwargs),
-                    config={
-                        "callbacks": [SafeTracer()],
-                        "configurable": {"session_id": session_id}
-                    }
+                    config=llm_config # Pass dynamic config
                 )
-                final_output_content = merge_result_obj.content if isinstance(merge_result_obj, AIMessage) else str(merge_result_obj)
+                response_text = merge_result_obj.content if isinstance(merge_result_obj, AIMessage) else str(merge_result_obj)
             except Exception as e:
                 logging.error(f"❌ Merge process error: {e}", exc_info=True)
                 final_output_content = "I encountered an issue generating a comprehensive diet plan. Please try again."
@@ -345,7 +338,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 session_id,
                 user_query,
-                response_text # Log the actual response sent to the user
+                response_text 
             ])
             logging.info("📝 Logged query and response to Google Sheet.")
     except Exception as e:
@@ -360,5 +353,5 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    # The default port for Render is 10000, but use 8000 for local development if not set
-    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True) # reload=True for dev
+    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)), reload=True)
+
