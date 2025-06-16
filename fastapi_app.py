@@ -98,7 +98,7 @@ else:
 app = FastAPI(
     title="Indian Diet Recommendation API",
     description="A backend API for personalized Indian diet suggestions using RAG and LLMs.",
-    version="0.2.4", # Incremented version
+    version="0.2.7", # Incremented version
 )
 app.add_middleware(
     CORSMiddleware,
@@ -167,6 +167,29 @@ class ChatRequest(BaseModel):
     temperature: Optional[float] = Field(None, ge=0.0, le=1.0, description="Temperature for LLM creativity (0.0 to 1.0)")
     max_output_tokens: Optional[int] = Field(None, ge=1, le=8192, description="Max tokens in LLM response (e.g., 1 to 8192)")
 
+# --- Helper function for consistent response handling ---
+async def send_response(session_id: str, user_query: str, response_text: str, sheet_enabled: bool, sheet: gspread.Worksheet):
+    """Adds to history, logs to sheet, and returns JSON response."""
+    try:
+        get_session_history(session_id).add_user_message(user_query)
+        get_session_history(session_id).add_ai_message(response_text)
+    except Exception as e:
+        logging.error(f"❌ Error adding to chat history: {e}", exc_info=True)
+
+    try:
+        if sheet_enabled and sheet:
+            sheet.append_row([
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                session_id,
+                user_query,
+                response_text 
+            ])
+            logging.info("📝 Logged query and response to Google Sheet.")
+    except Exception as e:
+        logging.warning(f"⚠️ Google Sheet logging failed: {e}", exc_info=True)
+
+    return JSONResponse(content={"answer": response_text, "session_id": session_id})
+
 # --- Chat Endpoint ---
 @app.post("/chat")
 async def chat(chat_request: ChatRequest, request: Request):
@@ -174,8 +197,9 @@ async def chat(chat_request: ChatRequest, request: Request):
     client_session_id = chat_request.session_id
     
     # Get dynamic LLM parameters from request, use defaults if not provided
+    # Reduced default max_output_tokens for better stability with merge prompt
     llm_temperature = chat_request.temperature if chat_request.temperature is not None else 0.5 # Default temperature
-    llm_max_output_tokens = chat_request.max_output_tokens if chat_request.max_output_tokens is not None else 2048 # Default max tokens
+    llm_max_output_tokens = chat_request.max_output_tokens if chat_request.max_output_tokens is not None else 800 # Reduced default max tokens
 
     # Generate or retrieve session ID for conversational memory
     session_id = client_session_id or request.session.get("session_id") or f"session_{os.urandom(8).hex()}"
@@ -205,6 +229,7 @@ async def chat(chat_request: ChatRequest, request: Request):
         # --- Intent-Based Routing ---
         if query_metadata["primary_intent_type"] == "greeting":
             response_text = "Namaste! How can I assist you with a healthy Indian diet today?"
+            return await send_response(session_id, user_query, response_text, sheet_enabled, sheet)
         
         elif query_metadata["primary_intent_type"] == "generic":
             logging.info("Handling generic query.")
@@ -213,6 +238,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                 config=llm_config # Pass dynamic config
             )
             response_text = generic_response_obj.content if isinstance(generic_response_obj, AIMessage) else str(generic_response_obj)
+            return await send_response(session_id, user_query, response_text, sheet_enabled, sheet)
             
         elif query_metadata["primary_intent_type"] == "formatting" and query_metadata["is_follow_up"]:
             chat_history = get_session_history(session_id).messages # Retrieve history inside the block
@@ -250,24 +276,7 @@ async def chat(chat_request: ChatRequest, request: Request):
             else:
                 response_text = "I can only re-format a previous diet plan. Please ask for a diet plan first!"
                 
-            # Add user and AI messages to session history for formatting queries too
-            get_session_history(session_id).add_user_message(user_query)
-            get_session_history(session_id).add_ai_message(response_text)
-            
-            # Log to Google Sheet for formatting queries as well, then return
-            try:
-                if sheet_enabled and sheet:
-                    sheet.append_row([
-                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        session_id,
-                        user_query,
-                        response_text 
-                    ])
-                    logging.info("📝 Logged query and response to Google Sheet.")
-            except Exception as e:
-                logging.warning(f"⚠️ Google Sheet logging failed: {e}", exc_info=True)
-            
-            return JSONResponse(content={"answer": response_text, "session_id": session_id})
+            return await send_response(session_id, user_query, response_text, sheet_enabled, sheet)
 
 
         else: # primary_intent_type is "task" or a formatting request with task keywords
@@ -313,27 +322,10 @@ async def chat(chat_request: ChatRequest, request: Request):
 
             # Check if RAG chain explicitly requested more info, if so, handle it here directly
             if any(phrase in rag_output_lower for phrase in rag_refusal_phrases):
-                logging.info(f"💡 RAG chain indicated more information is needed. Skipping Groq/Merge and returning specific guidance.")
+                logging.info(f"💡 RAG chain indicated more information is needed. Returning specific guidance directly.")
                 response_text = "To provide a tailored diet plan, I need a bit more detail. Could you please specify things like age, gender, activity level, or any dietary preferences (vegetarian, non-vegetarian, vegan, etc.) or health conditions (like diabetes, high BP)? This will help me give you a more personalized and effective plan."
                 
-                # Add user and AI messages to session history for task-refusal queries
-                get_session_history(session_id).add_user_message(user_query)
-                get_session_history(session_id).add_ai_message(response_text)
-                
-                # Log to Google Sheet for task-refusal queries, then return
-                try:
-                    if sheet_enabled and sheet:
-                        sheet.append_row([
-                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            session_id,
-                            user_query,
-                            response_text 
-                        ])
-                        logging.info("📝 Logged query and response to Google Sheet.")
-                except Exception as e:
-                    logging.warning(f"⚠️ Google Sheet logging failed: {e}", exc_info=True)
-                
-                return JSONResponse(content={"answer": response_text, "session_id": session_id})
+                return await send_response(session_id, user_query, response_text, sheet_enabled, sheet)
             else:
                 # Proceed with Groq and Merge only if RAG provided a substantive answer
                 groq_suggestions = {}
@@ -385,48 +377,10 @@ async def chat(chat_request: ChatRequest, request: Request):
                     final_output_content = "I encountered an issue generating a comprehensive diet plan. Please try again."
                 
                 response_text = final_output_content
+            
+            return await send_response(session_id, user_query, response_text, sheet_enabled, sheet)
 
     except Exception as e:
         logging.error(f"❌ Unhandled error in /chat endpoint: {e}", exc_info=True)
         response_text = "I'm sorry, an unexpected error occurred. Please try again."
-
-    # The following block is now redundant and should be removed or moved inside specific branches
-    # get_session_history(session_id).add_user_message(user_query)
-    # get_session_history(session_id).add_ai_message(response_text)
-
-    # try:
-    #     if sheet_enabled and sheet:
-    #         sheet.append_row([
-    #             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    #             session_id,
-    #             user_query,
-    #             response_text 
-    #         ])
-    #         logging.info("📝 Logged query and response to Google Sheet.")
-    # except Exception as e:
-    #     logging.warning(f"⚠️ Google Sheet logging failed: {e}", exc_info=True)
-
-    # return JSONResponse(content={"answer": response_text, "session_id": session_id})
-
-    # The final logging and return must happen consistently for all paths
-    logging.info(f"Final response for session {session_id}: {response_text[:200]}...") # Log final response
-    try:
-        get_session_history(session_id).add_user_message(user_query)
-        get_session_history(session_id).add_ai_message(response_text)
-    except Exception as e:
-        logging.error(f"❌ Error adding to chat history: {e}", exc_info=True)
-        # This error shouldn't stop the response, just log it.
-
-    try:
-        if sheet_enabled and sheet:
-            sheet.append_row([
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                session_id,
-                user_query,
-                response_text 
-            ])
-            logging.info("📝 Logged query and response to Google Sheet.")
-    except Exception as e:
-        logging.warning(f"⚠️ Google Sheet logging failed: {e}", exc_info=True)
-
-    return JSONResponse(content={"answer": response_text, "session_id": session_id})
+        return await send_response(session_id, user_query, response_text, sheet_enabled, sheet)
