@@ -98,7 +98,7 @@ else:
 app = FastAPI(
     title="Indian Diet Recommendation API",
     description="A backend API for personalized Indian diet suggestions using RAG and LLMs.",
-    version="0.2.1", # Incremented version
+    version="0.2.2", # Incremented version
 )
 app.add_middleware(
     CORSMiddleware,
@@ -260,72 +260,88 @@ async def chat(chat_request: ChatRequest, request: Request):
                 "disease": query_metadata["disease"] 
             }
 
-            rag_output_dict = "No answer from RAG." # MODIFIED: Expecting a dict now
+            rag_output_content = "No answer from RAG." 
             try:
-                # conversational_qa_chain now returns a dictionary with 'answer' key
                 rag_result = await conversational_qa_chain.ainvoke({
                     "query": user_query,
                     "chat_history": chat_history,
                     **user_params 
                 }, config=llm_config)
                 
-                # Extract the 'answer' content from the dictionary result
-                rag_output_content = rag_result.get("answer", "No answer from RAG chain.") # MODIFIED: Extract 'answer' key
-                logging.info(f"✅ RAG Chain Raw Output (from 'answer' key): {rag_output_content[: min(len(rag_output_content), 500)]}...") # Log more
+                rag_output_content = rag_result.get("answer", "No answer from RAG chain.") 
+                logging.info(f"✅ RAG Chain Raw Output (from 'answer' key): {rag_output_content[: min(len(rag_output_content), 500)]}...") 
             except Exception as e:
                 logging.error(f"❌ RAG error during ainvoke: {type(e).__name__}: {e}", exc_info=True)
                 rag_output_content = "Error while retrieving response from knowledge base."
 
-            groq_suggestions = {}
-            try:
-                groq_suggestions = cached_groq_answers(
-                    query=user_query,
-                    groq_api_key=GROQ_API_KEY,
-                    dietary_type=user_params["dietary_type"],
-                    goal=user_params["goal"],
-                    region=user_params["region"]
-                )
-            except Exception as e:
-                logging.error(f"❌ Groq error during suggestions: {e}", exc_info=True)
-                groq_suggestions = {"llama": "Error", "mixtral": "Error", "gemma": "Error"}
-
-            if query_metadata["wants_table"]:
-                merge_prompt = merge_prompt_table
-            elif query_metadata["wants_paragraph"]:
-                merge_prompt = merge_prompt_paragraph
-            else:
-                merge_prompt = merge_prompt_default
-
-            final_output_content = "Something went wrong while combining AI suggestions."
-            try:
-                format_kwargs = {
-                    "rag_section": f"Primary RAG Answer:\n{rag_output_content}", 
-                    "additional_suggestions_section": (
-                        f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
-                        f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
-                        f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
-                    ),
-                    "query": user_query, 
-                    "dietary_type": user_params.get("dietary_type", "any"), 
-                    "goal": user_params.get("goal", "general"),
-                    "region": user_params.get("region", "Indian"),
-                    "disease_section": f"Disease Condition: {user_params['disease']}\n" if user_params.get("disease") else ""
-                }
-                
-                # Log the formatted prompt and its length before sending to LLM
-                formatted_prompt_string = merge_prompt.format(**format_kwargs)
-                logging.info(f"➡️ Sending Merge Prompt (length: {len(formatted_prompt_string)} chars): {formatted_prompt_string[: min(len(formatted_prompt_string), 1000)]}...") # Log first 1000 chars
-
-                merge_result_obj = await llm_gemini.ainvoke(
-                    formatted_prompt_string, # Send the pre-formatted string
-                    config=llm_config # Pass dynamic config
-                )
-                response_text = merge_result_obj.content if isinstance(merge_result_obj, AIMessage) else str(merge_result_obj)
-            except Exception as e:
-                logging.error(f"❌ Merge process error: {type(e).__name__}: {e}", exc_info=True) # MODIFIED: Log exception type
-                final_output_content = "I encountered an issue generating a comprehensive diet plan. Please try again."
+            # Define common phrases where RAG indicates it needs more info
+            rag_refusal_phrases = [
+                "I need more information",
+                "please provide more details",
+                "context insufficient",
+                "cannot provide a detailed plan",
+                "please specify",
+                "not suitable for everyone" # Added this specific phrase from your logs
+            ]
             
-            response_text = final_output_content
+            # Convert to lowercase for case-insensitive check
+            rag_output_lower = rag_output_content.lower()
+
+            # Check if RAG chain explicitly requested more info, if so, handle it here directly
+            if any(phrase in rag_output_lower for phrase in rag_refusal_phrases):
+                logging.info(f"💡 RAG chain indicated more information is needed. Skipping Groq/Merge and returning specific guidance.")
+                response_text = "To provide a tailored diet plan, I need a bit more detail. Could you please specify things like age, gender, activity level, or any dietary preferences (vegetarian, non-vegetarian, vegan, etc.) or health conditions (like diabetes, high BP)? This will help me give you a more personalized and effective plan."
+            else:
+                # Proceed with Groq and Merge only if RAG provided a substantive answer
+                groq_suggestions = {}
+                try:
+                    groq_suggestions = cached_groq_answers(
+                        query=user_query,
+                        groq_api_key=GROQ_API_KEY,
+                        dietary_type=user_params["dietary_type"],
+                        goal=user_params["goal"],
+                        region=user_params["region"]
+                    )
+                except Exception as e:
+                    logging.error(f"❌ Groq error during suggestions: {e}", exc_info=True)
+                    groq_suggestions = {"llama": "Error", "mixtral": "Error", "gemma": "Error"}
+
+                if query_metadata["wants_table"]:
+                    merge_prompt = merge_prompt_table
+                elif query_metadata["wants_paragraph"]:
+                    merge_prompt = merge_prompt_paragraph
+                else:
+                    merge_prompt = merge_prompt_default
+
+                final_output_content = "Something went wrong while combining AI suggestions."
+                try:
+                    format_kwargs = {
+                        "rag_section": f"Primary RAG Answer:\n{rag_output_content}", 
+                        "additional_suggestions_section": (
+                            f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
+                            f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
+                            f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
+                        ),
+                        "query": user_query, 
+                        "dietary_type": user_params.get("dietary_type", "any"), 
+                        "goal": user_params.get("goal", "general"),
+                        "region": user_params.get("region", "Indian"),
+                        "disease_section": f"Disease Condition: {user_params['disease']}\n" if user_params.get("disease") else ""
+                    }
+                    
+                    formatted_prompt_string = merge_prompt.format(**format_kwargs)
+                    logging.info(f"➡️ Sending Merge Prompt (length: {len(formatted_prompt_string)} chars): {formatted_prompt_string[: min(len(formatted_prompt_string), 1000)]}...") 
+
+                    merge_result_obj = await llm_gemini.ainvoke(
+                        formatted_prompt_string, 
+                        config=llm_config 
+                    )
+                    response_text = merge_result_obj.content if isinstance(merge_result_obj, AIMessage) else str(merge_result_obj)
+                except Exception as e:
+                    logging.error(f"❌ Merge process error: {type(e).__name__}: {e}", exc_info=True) 
+                    final_output_content = "I encountered an issue generating a comprehensive diet plan. Please try again."
+                
+                response_text = final_output_content
 
     except Exception as e:
         logging.error(f"❌ Unhandled error in /chat endpoint: {e}", exc_info=True)
@@ -357,4 +373,4 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)), reload=True)
+    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True)
