@@ -9,18 +9,13 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_community.vectorstores import Chroma
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from langchain_core.messages import AIMessage, HumanMessage # Import message types
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# In-memory store for session histories. In a production environment,
-# this would typically be replaced by a persistent store (e.g., Redis, database).
 store = {}
 
 def get_session_history(session_id: str) -> ChatMessageHistory:
-    """
-    Retrieves or creates a chat message history for a given session ID.
-    This helps maintain conversational context across multiple turns.
-    """
     if session_id not in store:
         logging.info(f"Creating new Langchain session history in 'store' for: {session_id}")
         store[session_id] = ChatMessageHistory()
@@ -33,10 +28,11 @@ def define_rag_prompt_template():
     Defines the prompt template for the Retrieval-Augmented Generation (RAG) chain.
     This prompt guides the primary LLM (Gemini) to generate diet suggestions
     based on retrieved context and chat history, tailored to user's parameters.
+    Removed instruction for handling general conversation as this is done by FastAPI routing.
     """
     template_string = """
     You are AAHAR, an AI assistant specialized in Indian diet and nutrition, created by Suprovo Mallick.
-    Your main goal is to provide helpful and culturally relevant Indian diet suggestions.
+    Your task is to provide a culturally relevant Indian food suggestion or diet plan.
 
     Chat History:
     {chat_history}
@@ -48,21 +44,18 @@ def define_rag_prompt_template():
     Dietary Type Preference: {dietary_type}
     Goal: {goal}
     Region Preference: {region}
-    Disease Condition: {disease} # Added disease to the prompt variables if available
+    Disease Condition: {disease}
 
     Instructions:
-    1. If the user query is clearly related to food, diet, health goals, or nutrition, provide a culturally relevant Indian food suggestion or diet plan.
-    2. Tailor your answer for **{dietary_type}** users aiming for **{goal}**, considering the **{region}** Indian context and any **{disease}** conditions mentioned.
-    3. Use the provided "Context from Knowledge Base" to ground your answer and ensure accuracy and relevance.
-    4. Incorporate "Chat History" to maintain conversational flow and context.
-    5. If the user query is a general conversation (like greetings, asking who created you, your name, or what you do), respond politely and DO NOT provide a diet suggestion. These types of queries should ideally be handled by the 'generic_prompt' in the FastAPI app, but this instruction serves as a safeguard.
-    6. Ensure the output is actionable and easy to understand.
+    1. Provide a clear, actionable, and culturally relevant Indian food suggestion or diet plan based on the user's query, dietary type, goal, region, and any disease conditions.
+    2. Prioritize and synthesize information from the "Context from Knowledge Base" and "Chat History".
+    3. If the context is insufficient or irrelevant for the diet request, state that you cannot provide a detailed plan and suggest trying another query.
+    4. Focus solely on providing the diet suggestion; avoid conversational pleasantries (these are handled upstream).
 
     Output:
     """
     return PromptTemplate(
         template=template_string,
-        # Ensure all input variables match what's passed from FastAPI and the chain
         input_variables=["query", "chat_history", "dietary_type", "goal", "region", "disease", "context"]
     )
 
@@ -81,7 +74,7 @@ def define_generic_prompt():
     Example responses:
     - "Namaste! I'm AAHAR, your AI assistant for healthy Indian diet suggestions. How can I help you today?"
     - "Hello! I am AAHAR, an AI designed to provide personalized Indian diet plans. What kind of diet advice are you looking for?"
-    - "Hi there! I am an AI diet recommender. If you tell me your dietary goals or preferences, I can suggest a plan for you."
+    - "Hi there! I am an AI diet recommender. If you tell me my dietary goals or preferences, I can suggest a plan for you."
 
     Your response:
     """
@@ -98,42 +91,41 @@ def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: Promp
     uses them to inform the LLM's response.
     """
     try:
-        # Retriever configured to fetch top 5 most relevant documents
         retriever = db.as_retriever(search_kwargs={"k": 5})
 
         def retrieve_and_log_context(input_dict):
-            """
-            Custom function to retrieve documents and log the context for debugging.
-            Ensures that the context passed to the LLM is well-formed.
-            """
             docs = retriever.invoke(input_dict["query"])
             if not docs:
                 logging.warning(f"No documents retrieved for query: '{input_dict['query']}'")
-            # Join the page content of retrieved documents to form the context string
             context_str = "\n\n".join(doc.page_content for doc in docs)
-            logging.info(f"Retrieved Context: {context_str[:500]}...") # Log first 500 chars of context
+            logging.info(f"Retrieved Context: {context_str[:500]}...")
             return context_str
 
-        # Define the chain using LangChain's Runnable API
-        # This creates a dictionary of inputs required by the prompt
+        # The qa_chain will produce an AIMessage if StrOutputParser() is NOT the last step.
+        # But if it is, it produces a string. For conversational_qa_chain to properly
+        # extract the 'answer', the wrapped chain needs to return a dictionary with 'answer' key.
+        # OR, we need to explicitly extract .content from the AIMessage if we keep StrOutputParser later.
+        # Let's make this return AIMessage, and let StrOutputParser be handled outside if needed.
+
+        # MODIFIED: Removed StrOutputParser here, so this chain returns an AIMessage.
+        # The conversational_qa_chain will handle output_messages_key="answer" based on this.
         qa_chain = (
             {
-                "context": retrieve_and_log_context, # The context comes from retrieval
-                "query": RunnablePassthrough(),      # User's query passes through
-                "chat_history": RunnablePassthrough(), # Chat history passes through
-                "dietary_type": RunnablePassthrough(), # Dietary type passes through
-                "goal": RunnablePassthrough(),       # Goal passes through
-                "region": RunnablePassthrough(),     # Region passes through
-                "disease": RunnablePassthrough(),    # Disease passes through
+                "context": retrieve_and_log_context,
+                "query": RunnablePassthrough(),
+                "chat_history": RunnablePassthrough(),
+                "dietary_type": RunnablePassthrough(),
+                "goal": RunnablePassthrough(),
+                "region": RunnablePassthrough(),
+                "disease": RunnablePassthrough(),
             }
-            | rag_prompt       # The prompt takes these inputs
-            | llm_gemini       # The LLM generates a response
-            | StrOutputParser() # The output is parsed as a string
+            | rag_prompt
+            | llm_gemini # This will now return an AIMessage
         )
-        logging.info("Retrieval QA Chain initialized successfully.")
+        logging.info("Retrieval QA Chain initialized successfully (returns AIMessage).")
         return qa_chain
     except Exception as e:
-        logging.exception("Full QA Chain setup traceback:") # Log full traceback for better debugging
+        logging.exception("Full QA Chain setup traceback:")
         raise RuntimeError(f"QA Chain setup error: {e}")
 
 
@@ -141,15 +133,17 @@ def setup_conversational_qa_chain(qa_chain):
     """
     Wraps the QA chain with conversational history management.
     This allows the AI to remember previous turns in the conversation.
+    MODIFIED: Added output_messages_key="answer" to explicitly tell RunnableWithMessageHistory
+    which part of the wrapped chain's output is the answer to be stored/returned.
     """
     conversational_qa_chain = RunnableWithMessageHistory(
-        qa_chain,
+        qa_chain, # This qa_chain now returns an AIMessage
         get_session_history,
-        input_messages_key="query",        # Key for the user's current message
-        history_messages_key="chat_history", # Key for the full chat history
-        # output_messages_key="answer" # Not needed for StrOutputParser, as it's directly returned
+        input_messages_key="query",
+        history_messages_key="chat_history",
+        output_messages_key="answer" # <--- IMPORTANT: Re-enabled and ensures 'answer' key in output
     )
-    logging.info("Conversational QA Chain initialized.")
+    logging.info("Conversational QA Chain initialized (with output_messages_key).")
     return conversational_qa_chain
 
 
@@ -194,7 +188,7 @@ def define_merge_prompt_templates():
 
     Instructions:
     1. Prioritize the "Primary RAG Answer" if it is specific, relevant, and not an error message.
-    2. If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error, then heavily rely on and synthesize from the "Additional AI Suggestions".
+    2. If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error, then heavily rely on and synthesize from the "Additional Suggestions".
     3. Combine information logically and seamlessly, without explicitly mentioning the source of each piece.
     4. Ensure the final plan is clear, actionable, and culturally relevant.
     5. **Strictly adhere to markdown table format.**
@@ -218,7 +212,7 @@ def define_merge_prompt_templates():
 
     Instructions:
     1. Prioritize the "Primary RAG Answer" if it is specific, relevant, and not an error message.
-    2. If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error, then heavily rely on and synthesize from the "Additional AI Suggestions".
+    2. If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error, then heavily rely on and synthesize from the "Additional Suggestions".
     3. Combine information logically and seamlessly, without explicitly mentioning the source of each piece.
     4. Ensure the final plan is clear, actionable, and culturally relevant.
     5. **Strictly present the diet plan as continuous paragraphs.**
