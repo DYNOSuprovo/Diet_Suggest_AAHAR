@@ -1,5 +1,4 @@
 # fastapi_app.py
-# fastapi_app.py
 
 import os
 import json
@@ -11,11 +10,12 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from pydantic import BaseModel, Field # Import Field for default values and constraints
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from langchain_google_genai import GoogleGenerativeAI
 from custom_callbacks import SafeTracer
 from langchain_core.messages import AIMessage 
+from typing import Optional # <--- ADD THIS LINE
 
 # Google Sheets logging (Ensure gspread and oauth2client are installed: pip install gspread oauth2client)
 import gspread
@@ -179,7 +179,11 @@ async def chat(chat_request: ChatRequest, request: Request):
     llm_temperature = chat_request.temperature if chat_request.temperature is not None else 0.5 # Default temperature
     llm_max_output_tokens = chat_request.max_output_tokens if chat_request.max_output_tokens is not None else 2048 # Default max tokens
 
-    # Prepare config for LLM calls
+    # Generate or retrieve session ID for conversational memory
+    session_id = client_session_id or request.session.get("session_id") or f"session_{os.urandom(8).hex()}"
+    request.session["session_id"] = session_id 
+
+    # Prepare config for LLM calls (must be defined AFTER session_id)
     llm_config = {
         "callbacks": [SafeTracer()], 
         "configurable": {
@@ -188,10 +192,6 @@ async def chat(chat_request: ChatRequest, request: Request):
             "max_output_tokens": llm_max_output_tokens # Pass max_output_tokens
         }
     }
-
-    # Generate or retrieve session ID for conversational memory
-    session_id = client_session_id or request.session.get("session_id") or f"session_{os.urandom(8).hex()}"
-    request.session["session_id"] = session_id 
 
     logging.info(f"📩 Incoming Query: '{user_query}' | Session: {session_id} | Temp: {llm_temperature} | Max Tokens: {llm_max_output_tokens}")
 
@@ -235,7 +235,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                     "rag_section": f"Previous Answer:\n{last_ai_message_content}",
                     "additional_suggestions_section": "No new suggestions needed for reformatting.",
                     "query": user_query, 
-                    "dietary_type": query_metadata.get("dietary_type", "any"), # Use extracted or default
+                    "dietary_type": query_metadata.get("dietary_type", "any"), 
                     "goal": query_metadata.get("goal", "general"),     
                     "region": query_metadata.get("region", "Indian"),    
                     "disease_section": f"Disease Condition: {query_metadata['disease']}\n" if query_metadata.get("disease") else ""
@@ -261,7 +261,6 @@ async def chat(chat_request: ChatRequest, request: Request):
 
             rag_output_content = "No answer from RAG."
             try:
-                # conversational_qa_chain returns a string because StrOutputParser() is applied.
                 rag_result = await conversational_qa_chain.ainvoke({
                     "query": user_query,
                     "chat_history": chat_history,
@@ -276,8 +275,6 @@ async def chat(chat_request: ChatRequest, request: Request):
 
             groq_suggestions = {}
             try:
-                # Groq calls don't directly use LangChain's config. They need separate handling if Groq API supports temperature.
-                # Assuming current cached_groq_answers doesn't use temperature/max_tokens from FastAPI request directly.
                 groq_suggestions = cached_groq_answers(
                     query=user_query,
                     groq_api_key=GROQ_API_KEY,
@@ -353,5 +350,4 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)), reload=True)
-
+    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True)
