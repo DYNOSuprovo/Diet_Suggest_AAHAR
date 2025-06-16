@@ -32,7 +32,7 @@ def define_rag_prompt_template():
     """
     template_string = """
     You are AAHAR, an AI assistant specialized in Indian diet and nutrition, created by Suprovo Mallick.
-    Your task is to provide a culturally relevant Indian food suggestion or diet plan.
+    Your main goal is to provide a culturally relevant Indian food suggestion or diet plan.
 
     Chat History:
     {chat_history}
@@ -89,6 +89,7 @@ def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: Promp
     Sets up the core Retrieval-Augmented Generation (RAG) chain.
     This chain retrieves relevant documents from the vector database and
     uses them to inform the LLM's response.
+    MODIFIED: Ensures the output is a dictionary with an 'answer' key.
     """
     try:
         retriever = db.as_retriever(search_kwargs={"k": 5})
@@ -101,14 +102,6 @@ def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: Promp
             logging.info(f"Retrieved Context: {context_str[:500]}...")
             return context_str
 
-        # The qa_chain will produce an AIMessage if StrOutputParser() is NOT the last step.
-        # But if it is, it produces a string. For conversational_qa_chain to properly
-        # extract the 'answer', the wrapped chain needs to return a dictionary with 'answer' key.
-        # OR, we need to explicitly extract .content from the AIMessage if we keep StrOutputParser later.
-        # Let's make this return AIMessage, and let StrOutputParser be handled outside if needed.
-
-        # MODIFIED: Removed StrOutputParser here, so this chain returns an AIMessage.
-        # The conversational_qa_chain will handle output_messages_key="answer" based on this.
         qa_chain = (
             {
                 "context": retrieve_and_log_context,
@@ -120,9 +113,11 @@ def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: Promp
                 "disease": RunnablePassthrough(),
             }
             | rag_prompt
-            | llm_gemini # This will now return an AIMessage
+            | llm_gemini
+            | StrOutputParser() # Ensure LLM output is a string before putting in 'answer' key
+            | {"answer": RunnablePassthrough()} # <--- CRITICAL: Wrap the string output in a dict with 'answer' key
         )
-        logging.info("Retrieval QA Chain initialized successfully (returns AIMessage).")
+        logging.info("Retrieval QA Chain initialized successfully (returns dict with 'answer' key).")
         return qa_chain
     except Exception as e:
         logging.exception("Full QA Chain setup traceback:")
@@ -133,15 +128,15 @@ def setup_conversational_qa_chain(qa_chain):
     """
     Wraps the QA chain with conversational history management.
     This allows the AI to remember previous turns in the conversation.
-    MODIFIED: Added output_messages_key="answer" to explicitly tell RunnableWithMessageHistory
-    which part of the wrapped chain's output is the answer to be stored/returned.
+    `output_messages_key="answer"` is crucial for `RunnableWithMessageHistory`
+    to correctly identify the part of the wrapped chain's output to store.
     """
     conversational_qa_chain = RunnableWithMessageHistory(
-        qa_chain, # This qa_chain now returns an AIMessage
+        qa_chain, # This qa_chain now returns a dictionary with an 'answer' key
         get_session_history,
         input_messages_key="query",
         history_messages_key="chat_history",
-        output_messages_key="answer" # <--- IMPORTANT: Re-enabled and ensures 'answer' key in output
+        output_messages_key="answer" # <--- IMPORTANT: This tells it to expect 'answer' in the wrapped chain's output
     )
     logging.info("Conversational QA Chain initialized (with output_messages_key).")
     return conversational_qa_chain
@@ -165,7 +160,7 @@ def define_merge_prompt_templates():
 
     Instructions:
     1. Prioritize the "Primary RAG Answer" if it is specific, relevant, and not an error message.
-    2. If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error, then heavily rely on and synthesize from the "Additional AI Suggestions".
+    2. If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error, then heavily rely on and synthesize from the "Additional Suggestions".
     3. Combine information logically and seamlessly, without explicitly mentioning the source of each piece (e.g., "from RAG," "Groq said").
     4. Ensure the final plan is clear, actionable, culturally relevant, and addresses the user's stated dietary type, goal, region, and disease condition.
     5. Maintain a helpful and professional tone.
