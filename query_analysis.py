@@ -28,7 +28,7 @@ TASK_KEYWORDS = {
     "diabetes", "bp", "sugar", "pressure", "cholesterol", "diabetic", "hypertension", "heart disease",
     "mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad", "pune", "ahmedabad", # Cities for regional context
     "kidney", "renal", "liver", "hepatic", "thyroid", "hypothyroid", "hyperthyroid", "pcos", "pcod", # Expanded diseases
-    "recipes", "recipe", "dishes", "dish" # Common food-related terms
+    "recipes", "recipe", "dishes", "dish", "breakfast", "lunch", "dinner", "snack" # Added meal times as task keywords
 }
 
 # GENERIC_INTENT_PHRASES: Strictly for non-diet, meta-questions or pure exclamations.
@@ -64,13 +64,15 @@ FORMATTING_KEYWORDS = {
     "table", "tabular", "chart", "format", "list", "bullet", "points", "itemize", "enumerate",
     "structured", "organized", "paragraph", "in paragraph", "in table", "line by line",
     "grid", "column", "row", "spreadsheet", "csv", # Table-related
-    "briefly", "summary", "summarize", "concise", "short", "long", "detailed" # Length/style related
+    "briefly", "summary", "summarize", "concise", "short", "long", "detailed", "full" # Length/style related
 }
 
-MODIFICATION_KEYWORDS = { # New set for explicit modification requests
+# MODIFICATION_KEYWORDS: Explicitly for modifying a *plan's content*
+MODIFICATION_KEYWORDS = {
     "remove", "delete", "exclude", "omit", "without", "no", "minus",
     "add", "include", "with", "plus",
-    "change", "modify", "update", "alter", "different", "another", "alternative", "variation"
+    "change", "modify", "update", "alter", "different", "another", "alternative", "variation",
+    "not do", "don't do", "skip" # Added more natural language for exclusions
 }
 
 FILLER_WORDS = {
@@ -78,7 +80,7 @@ FILLER_WORDS = {
     "the", "for", "my", "to", "with", "want", "now", "like", "need", "i", "am", "is",
     "how", "what", "do", "you", "just", "and", "or", "but", "an", "on", "at", "from",
     "about", "some", "any", "this", "that", "get", "make", "create", "build",
-    "generate", "provide", "help", "assist", "a bit", "a little", "of course"
+    "generate", "provide", "help", "assist", "a bit", "a little", "of course", "generally" # Added "generally"
 }
 
 REGION_KEYWORDS = [
@@ -86,7 +88,7 @@ REGION_KEYWORDS = [
     "maharashtrian", "gujarati", "tamil", "kannada", "telugu", "malayalam", "odisha",
     "oriya", "kanyakumari", "bhubaneswar", "cuttack", "angul", "rajasthan", "jaisalmir",
     "mumbai", "delhi", "bangalore", "chennai", "kolkata", "hyderabad", "pune", "ahmedabad",
-    "kerala", "andhra", "telangana", "uttar pradesh", "bihar", "west bengal", "goa", # More regions
+    "kerala", "andhra", "telangana", "uttar pradesh", "bihar", "west bengal", "goa",
     "haryana", "himachal", "jammu", "kashmir", "karnataka", "madhya pradesh", "maharashtra",
     "manipur", "meghalaya", "mizoram", "nagaland", "punjab", "sikkim", "tripura", "uttarakhand"
 ]
@@ -99,9 +101,9 @@ DISEASE_KEYWORDS = {
     "liver": ["liver", "hepatic", "fatty liver", "jaundice"],
     "thyroid": ["thyroid", "hypothyroid", "hyperthyroid", "thyroxin"],
     "pcos": ["pcos", "pcod", "polycystic ovary syndrome"],
-    "digestion": ["digestion", "digestive", "gut health", "irritable bowel", "constipation", "diarrhea"], # New
-    "anemia": ["anemia", "iron deficiency", "low iron"], # New
-    "arthritis": ["arthritis", "joint pain", "gout"] # New
+    "digestion": ["digestion", "digestive", "gut health", "irritable bowel", "constipation", "diarrhea"],
+    "anemia": ["anemia", "iron deficiency", "low iron"],
+    "arthritis": ["arthritis", "joint pain", "gout"]
 }
 
 
@@ -135,11 +137,9 @@ def is_greeting(query: str) -> bool:
     # Check if a significant portion are greeting words and no task words
     greeting_words_in_query = [w for w in words if w in GREETINGS]
     if greeting_words_in_query and not any(k in cleaned for k in TASK_KEYWORDS):
-        # If it contains greeting words and is short (up to 5 words), and no task keywords
-        if len(words) <= 5:
+        if len(words) <= 5: # Short greetings
             logging.info(f"✨ Detected indirect greeting (short & non-task): '{query}'")
             return True
-        # If a high percentage of non-filler words are greetings
         non_filler_words = [w for w in words if w not in FILLER_WORDS]
         if len(non_filler_words) > 0 and len(greeting_words_in_query) / len(non_filler_words) >= 0.7:
              logging.info(f"✨ Detected indirect greeting (high greeting word density): '{query}'")
@@ -167,71 +167,76 @@ def is_generic_query(query: str) -> bool:
 
     # Rule 2: Pattern matching (e.g., single question words, simple responses)
     for pattern in GENERIC_PATTERNS:
-        if re.match(pattern, q): # Removed IGNORECASE as clean_query makes it lowercase
+        if re.match(pattern, q):
             logging.info(f"🔍 Generic (pattern match): {query}")
             return True
 
-    # Rule 3: Very short queries (1-4 words) that are NOT greetings and contain NO task/formatting/modification keywords.
+    # Check for any task, formatting, or modification keyword
+    has_specific_keywords = any(k in q for k in TASK_KEYWORDS) or \
+                            any(k in q for k in FORMATTING_KEYWORDS) or \
+                            any(k in q for k in MODIFICATION_KEYWORDS)
+
+    # If it contains any specific keyword, it's NOT generic.
+    if has_specific_keywords:
+        logging.info(f"🎯 Not generic (contains specific keyword): '{query}'")
+        return False
+
+    # Rule 3: Very short queries (1-4 words) that are NOT greetings and contain NO specific keywords.
     if 1 <= len(words) <= 4:
-        if not is_greeting(query) and \
-           not any(k in q for k in TASK_KEYWORDS) and \
-           not any(k in q for k in FORMATTING_KEYWORDS) and \
-           not any(k in q for k in MODIFICATION_KEYWORDS):
-            logging.info(f"❓ Detected generic (short, no specific keywords): '{query}'")
+        if not is_greeting(query):
+            logging.info(f"❓ Detected generic (short, no specific keywords, not greeting): '{query}'")
             return True
 
-    # Rule 4: Queries where all non-filler words are absent or very few, and no task/formatting/modification keywords.
+    # Rule 4: Queries where all non-filler words are absent or very few, and no specific keywords.
     non_filler_words = [w for w in words if w not in FILLER_WORDS]
     if len(non_filler_words) == 0: # All words are fillers
-        if not is_greeting(query) and \
-           not any(k in q for k in TASK_KEYWORDS) and \
-           not any(k in q for k in FORMATTING_KEYWORDS) and \
-           not any(k in q for k in MODIFICATION_KEYWORDS):
-            logging.info(f"❓ Detected generic (all fillers, no specific keywords): '{query}'")
+        if not is_greeting(query):
+            logging.info(f"❓ Detected generic (all fillers, no specific keywords, not greeting): '{query}'")
             return True
-
-    # If it contains any task, formatting, or modification keyword, it's NOT generic.
-    if any(k in q for k in TASK_KEYWORDS) or \
-       any(k in q for k in FORMATTING_KEYWORDS) or \
-       any(k in q for k in MODIFICATION_KEYWORDS):
-        logging.info(f"🎯 Not generic (contains specific task/format/mod keyword): '{query}'")
-        return False
 
     return False
 
 @lru_cache(maxsize=128)
 def is_formatting_request(query: str) -> bool:
     """
-    Checks if the query primarily asks for output formatting.
-    This is stricter for a standalone formatting request.
+    Checks if the query primarily asks for output formatting OR is a direct modification command.
+    This function specifically targets requests to re-format or subtly alter the structure/content
+    of a previous response, NOT a request for a new diet plan with a constraint.
     """
     if not query:
         return False
     cleaned = clean_query(query)
     words = cleaned.split()
 
-    # Must contain at least one formatting keyword
-    contains_format_keyword = any(k in cleaned for k in FORMATTING_KEYWORDS)
-    if not contains_format_keyword:
-        return False
+    has_format_keyword = any(k in cleaned for k in FORMATTING_KEYWORDS)
+    has_modification_keyword = any(k in cleaned for k in MODIFICATION_KEYWORDS)
 
-    # Calculate ratio of formatting/modification/filler words to total non-filler words
-    non_task_words = [w for w in words if w not in TASK_KEYWORDS]
-    
-    formatting_relevant_words = [w for w in non_task_words if w in FORMATTING_KEYWORDS or w in MODIFICATION_KEYWORDS or w in FILLER_WORDS]
+    # If it has *only* formatting or modification keywords (and fillers) and is short, it's a formatting request
+    if (has_format_keyword or has_modification_keyword) and \
+       not any(k in cleaned for k in TASK_KEYWORDS) and \
+       len(words) <= 6: # Keep this short to avoid catching full task queries
+        non_filler_and_specific_words = [w for w in words if w not in FILLER_WORDS and (w in FORMATTING_KEYWORDS or w in MODIFICATION_KEYWORDS)]
+        if len(non_filler_and_specific_words) > 0 and len(non_filler_and_specific_words) == len([w for w in words if w not in FILLER_WORDS]):
+            logging.info(f"⚙️ Formatting/Modification (short, no task, specific words only): '{query}'")
+            return True
+        
+        # Catch explicit formatting/modification phrases like "remove breakfast" if no other strong task keywords
+        if "remove breakfast" in cleaned or "no breakfast" in cleaned:
+             if not any(k in cleaned for k in TASK_KEYWORDS if k not in ["breakfast", "meal"]): # "breakfast" can be a task keyword, but 'remove breakfast' is a modification here
+                 logging.info(f"⚙️ Formatting/Modification (explicit exclusion): '{query}'")
+                 return True
 
-    # If the query contains formatting/modification keywords AND is relatively short/predominantly these words,
-    # and doesn't also contain strong task keywords, it's likely a primary formatting/modification request.
-    if len(non_task_words) > 0 and len(formatting_relevant_words) / len(non_task_words) >= 0.75:
-        logging.info(f"⚙️ Formatting/Modification request (high keyword density, low task): '{query}'")
-        return True
-    
-    # Specific check for very short queries that are direct formatting/modification commands
-    if len(words) <= 4 and contains_format_keyword and not any(k in cleaned for k in TASK_KEYWORDS):
-        logging.info(f"⚙️ Formatting/Modification request (very short & direct, no task): '{query}'")
-        return True
+
+    # If it contains formatting keywords and is a follow-up, it could be a reformat request
+    # This logic overlaps with is_follow_up_query, but helps specifically identify the *type* of follow-up.
+    # Consider "give in table format" - this is primarily formatting.
+    if has_format_keyword and (len(words) <= 5 or all(w in FORMATTING_KEYWORDS or w in FILLER_WORDS for w in words)):
+        if not any(k in cleaned for k in TASK_KEYWORDS): # Must not also be a task
+            logging.info(f"⚙️ Formatting request (pure formatting, possibly follow-up): '{query}'")
+            return True
 
     return False
+
 
 @lru_cache(maxsize=128)
 def contains_table_request(query: str) -> bool:
@@ -331,8 +336,9 @@ def is_follow_up_query(query: str) -> bool:
         "how about", "modify", "update", "again", "for me", "just",
         "different", "another", "alternative", "variation", "reformat", "re-format",
         # Explicit modification phrases
+        "this", "that", "it", # Referring to previous content
         "remove this", "delete that", "exclude", "omit", "without", "no breakfast",
-        "add this", "include that"
+        "add this", "include that", "skip" # Added "skip"
     }
 
     # Check for direct follow-up phrases or explicit modification keywords
@@ -393,16 +399,12 @@ def extract_all_metadata(query: str) -> Dict[str, Any]:
     if is_greeting(cleaned_q):
         primary_intent_type = "greeting"
     # Check for a formatting/modification request that isn't also a strong task keyword query
-    elif is_formatting_request(cleaned_q) or contains_modification_request(cleaned_q):
-        # If it's *primarily* formatting/modification and not a strong task
-        if not any(k in cleaned_q for k in TASK_KEYWORDS):
-            primary_intent_type = "formatting"
-        else: # It's a formatting/modification request *within* a task query
-            primary_intent_type = "task"
+    elif is_formatting_request(cleaned_q): # The logic for this function is now more precise
+        primary_intent_type = "formatting"
     elif is_generic_query(cleaned_q):
         primary_intent_type = "generic" # This will catch remaining generic queries
-    elif any(k in cleaned_q for k in TASK_KEYWORDS):
-        primary_intent_type = "task" # Catch any query with task keywords not caught above
+    elif any(k in cleaned_q for k in TASK_KEYWORDS) or contains_modification_request(cleaned_q): # Modified to include modification keywords in task
+        primary_intent_type = "task" # Catch any query with task keywords or modification keywords (like "remove breakfast")
 
 
     # Extract specific details if it's potentially a task or formatting/modification request
@@ -420,19 +422,17 @@ def extract_all_metadata(query: str) -> Dict[str, Any]:
         goal = extract_diet_goal(cleaned_q)
         region = extract_regional_preference(cleaned_q)
         disease = extract_disease_condition(cleaned_q)
-        is_follow_up_flag = is_follow_up_query(cleaned_q)
+        is_follow_up_flag = is_follow_up_query(cleaned_q) # This will now be true for "remove breakfast"
 
     # Formatting flags should always be checked if the query has formatting keywords,
     # as they indicate a desired output style regardless of primary intent.
     wants_table = contains_table_request(cleaned_q)
     wants_paragraph = contains_paragraph_request(cleaned_q)
-    # The 'remove breakfast' type of request is primarily a modification request
-    # which implies a follow-up.
 
     # Final adjustment for `is_follow_up_flag`:
-    # If the primary intent is 'formatting' AND it contains modification keywords (like 'remove'),
-    # then it should definitely be a follow-up, even if `is_follow_up_query` didn't catch it broadly.
-    if primary_intent_type == "formatting" and contains_modification_request(cleaned_q):
+    # If it's a modification request (like "remove breakfast"), it's definitely a follow-up.
+    # This ensures it's treated as a follow-up for the LLM to process as a constraint.
+    if contains_modification_request(cleaned_q):
         is_follow_up_flag = True
 
 
@@ -472,16 +472,16 @@ if __name__ == "__main__":
         "diet for me", "what can I eat", "recipes for dinner",
 
         # Formatting/Modification Tests (should be 'formatting' or 'task' with formatting/follow-up)
-        "show a diet plan in table format", # Task + Formatting
-        "give in table format",             # Formatting + Follow-up (implicitly, based on logic)
-        "in paragraph form only",           # Formatting + Follow-up
-        "just table",                       # Formatting + Follow-up
-        "remove breakfast",                 # NEW: Modification + Follow-up (should be 'formatting')
-        "add more protein",                 # NEW: Modification + Follow-up
-        "make it vegan",                    # Follow-up + Preferences (should be 'task' with follow-up)
-        "same but make it non-veg",         # Follow-up + Preferences (should be 'task' with follow-up)
-        "can you make it shorter",          # Formatting + Follow-up
-        "no dinner"                         # NEW: Modification + Follow-up
+        "show a diet plan in table format", # Task + Formatting (primary_intent_type: task, wants_table: True, is_follow_up: True)
+        "give in table format",             # Formatting + Follow-up (primary_intent_type: formatting, wants_table: True, is_follow_up: True)
+        "in paragraph form only",           # Formatting + Follow-up (primary_intent_type: formatting, wants_paragraph: True, is_follow_up: True)
+        "just table",                       # Formatting + Follow-up (primary_intent_type: formatting, wants_table: True, is_follow_up: True)
+        "remove breakfast",                 # NEW: Modification + Follow-up (primary_intent_type: task, is_follow_up: True, has_modification_keywords: True, dietary_type/goal/region/disease from context/memory)
+        "add more protein",                 # NEW: Modification + Follow-up (primary_intent_type: task, is_follow_up: True, has_modification_keywords: True)
+        "make it vegan",                    # Follow-up + Preferences (primary_intent_type: task, is_follow_up: True)
+        "same but make it non-veg",         # Follow-up + Preferences (primary_intent_type: task, is_follow_up: True)
+        "can you make it shorter",          # Formatting + Follow-up (primary_intent_type: formatting, is_follow_up: True)
+        "no dinner"                         # NEW: Modification + Follow-up (primary_intent_type: task, is_follow_up: True, has_modification_keywords: True)
     ]
 
     print("--- Consolidated Query Analysis Test Results ---")
