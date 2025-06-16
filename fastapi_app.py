@@ -17,7 +17,7 @@ from custom_callbacks import SafeTracer
 from langchain_core.messages import AIMessage 
 from typing import Optional 
 
-# Google Sheets logging (Ensure gspread and oauth2client are installed: pip install gspread oauth2client)
+# Google Sheets logging (Ensure gspread and oauth2client are installed: pip pip install gspread oauth2client)
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -120,8 +120,6 @@ from embedding_utils import setup_vector_database
 from groq_integration import cached_groq_answers
 
 # --- LLM & Vector DB Setup ---
-# Initialize LLM instances without hardcoding temperature/max_output_tokens
-# These will be passed dynamically via the config dict in .ainvoke()
 llm_gemini = GoogleGenerativeAI(
     model="gemini-1.5-flash", 
     google_api_key=GEMINI_API_KEY
@@ -184,13 +182,12 @@ async def chat(chat_request: ChatRequest, request: Request):
     request.session["session_id"] = session_id 
 
     # Prepare config for LLM calls (must be defined AFTER session_id)
-    # The temperature and max_output_tokens should be in model_kwargs for GoogleGenerativeAI
     llm_config = {
         "callbacks": [SafeTracer()], 
         "configurable": {
             "session_id": session_id,
         },
-        "model_kwargs": { # <--- CORRECT LOCATION FOR LLM PARAMETERS
+        "model_kwargs": { # Correct location for LLM parameters for GoogleGenerativeAI
             "temperature": llm_temperature,
             "max_output_tokens": llm_max_output_tokens
         }
@@ -263,25 +260,24 @@ async def chat(chat_request: ChatRequest, request: Request):
                 "disease": query_metadata["disease"] 
             }
 
-            rag_output_content = "No answer from RAG."
+            rag_output_dict = "No answer from RAG." # MODIFIED: Expecting a dict now
             try:
-                # conversational_qa_chain returns a string because StrOutputParser() is applied.
+                # conversational_qa_chain now returns a dictionary with 'answer' key
                 rag_result = await conversational_qa_chain.ainvoke({
                     "query": user_query,
                     "chat_history": chat_history,
                     **user_params 
-                }, config=llm_config) # Pass dynamic config
+                }, config=llm_config)
                 
-                rag_output_content = str(rag_result) 
-                logging.info(f"✅ RAG Chain Raw Output: {rag_output_content[:200]}...")
+                # Extract the 'answer' content from the dictionary result
+                rag_output_content = rag_result.get("answer", "No answer from RAG chain.") # MODIFIED: Extract 'answer' key
+                logging.info(f"✅ RAG Chain Raw Output (from 'answer' key): {rag_output_content[: min(len(rag_output_content), 500)]}...") # Log more
             except Exception as e:
-                logging.error(f"❌ RAG error during ainvoke: {e}", exc_info=True)
+                logging.error(f"❌ RAG error during ainvoke: {type(e).__name__}: {e}", exc_info=True)
                 rag_output_content = "Error while retrieving response from knowledge base."
 
             groq_suggestions = {}
             try:
-                # Groq calls don't directly use LangChain's config. They need separate handling if Groq API supports temperature.
-                # Assuming current cached_groq_answers doesn't use temperature/max_tokens from FastAPI request directly.
                 groq_suggestions = cached_groq_answers(
                     query=user_query,
                     groq_api_key=GROQ_API_KEY,
@@ -318,7 +314,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                 
                 # Log the formatted prompt and its length before sending to LLM
                 formatted_prompt_string = merge_prompt.format(**format_kwargs)
-                logging.info(f"➡️ Sending Merge Prompt (length: {len(formatted_prompt_string)} chars): {formatted_prompt_string[:500]}...") # Log first 500 chars
+                logging.info(f"➡️ Sending Merge Prompt (length: {len(formatted_prompt_string)} chars): {formatted_prompt_string[: min(len(formatted_prompt_string), 1000)]}...") # Log first 1000 chars
 
                 merge_result_obj = await llm_gemini.ainvoke(
                     formatted_prompt_string, # Send the pre-formatted string
@@ -326,7 +322,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                 )
                 response_text = merge_result_obj.content if isinstance(merge_result_obj, AIMessage) else str(merge_result_obj)
             except Exception as e:
-                logging.error(f"❌ Merge process error: {e}", exc_info=True)
+                logging.error(f"❌ Merge process error: {type(e).__name__}: {e}", exc_info=True) # MODIFIED: Log exception type
                 final_output_content = "I encountered an issue generating a comprehensive diet plan. Please try again."
             
             response_text = final_output_content
