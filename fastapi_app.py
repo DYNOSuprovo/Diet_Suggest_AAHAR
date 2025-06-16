@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from langchain_google_genai import GoogleGenerativeAI
 from custom_callbacks import SafeTracer
 from langchain_core.messages import AIMessage 
-from typing import Optional # <--- ADD THIS LINE
+from typing import Optional 
 
 # Google Sheets logging (Ensure gspread and oauth2client are installed: pip install gspread oauth2client)
 import gspread
@@ -184,12 +184,15 @@ async def chat(chat_request: ChatRequest, request: Request):
     request.session["session_id"] = session_id 
 
     # Prepare config for LLM calls (must be defined AFTER session_id)
+    # The temperature and max_output_tokens should be in model_kwargs for GoogleGenerativeAI
     llm_config = {
         "callbacks": [SafeTracer()], 
         "configurable": {
             "session_id": session_id,
-            "temperature": llm_temperature, # Pass temperature
-            "max_output_tokens": llm_max_output_tokens # Pass max_output_tokens
+        },
+        "model_kwargs": { # <--- CORRECT LOCATION FOR LLM PARAMETERS
+            "temperature": llm_temperature,
+            "max_output_tokens": llm_max_output_tokens
         }
     }
 
@@ -218,6 +221,7 @@ async def chat(chat_request: ChatRequest, request: Request):
         elif query_metadata["primary_intent_type"] == "formatting" and query_metadata["is_follow_up"]:
             last_ai_message_content = None
             for msg in reversed(chat_history):
+                # Heuristic to find a substantial AI diet plan message
                 if msg.type == 'ai' and msg.content and len(msg.content) > 50 and not msg.content.startswith("Namaste!") and not msg.content.startswith("I'm an AI"):
                     last_ai_message_content = msg.content
                     break
@@ -233,7 +237,7 @@ async def chat(chat_request: ChatRequest, request: Request):
 
                 format_kwargs = {
                     "rag_section": f"Previous Answer:\n{last_ai_message_content}",
-                    "additional_suggestions_section": "No new suggestions needed for reformatting.",
+                    "additional_suggestions_section": "No new suggestions needed for reformatting.", # Empty for reformat
                     "query": user_query, 
                     "dietary_type": query_metadata.get("dietary_type", "any"), 
                     "goal": query_metadata.get("goal", "general"),     
@@ -261,6 +265,7 @@ async def chat(chat_request: ChatRequest, request: Request):
 
             rag_output_content = "No answer from RAG."
             try:
+                # conversational_qa_chain returns a string because StrOutputParser() is applied.
                 rag_result = await conversational_qa_chain.ainvoke({
                     "query": user_query,
                     "chat_history": chat_history,
@@ -275,6 +280,8 @@ async def chat(chat_request: ChatRequest, request: Request):
 
             groq_suggestions = {}
             try:
+                # Groq calls don't directly use LangChain's config. They need separate handling if Groq API supports temperature.
+                # Assuming current cached_groq_answers doesn't use temperature/max_tokens from FastAPI request directly.
                 groq_suggestions = cached_groq_answers(
                     query=user_query,
                     groq_api_key=GROQ_API_KEY,
@@ -309,8 +316,12 @@ async def chat(chat_request: ChatRequest, request: Request):
                     "disease_section": f"Disease Condition: {user_params['disease']}\n" if user_params.get("disease") else ""
                 }
                 
+                # Log the formatted prompt and its length before sending to LLM
+                formatted_prompt_string = merge_prompt.format(**format_kwargs)
+                logging.info(f"➡️ Sending Merge Prompt (length: {len(formatted_prompt_string)} chars): {formatted_prompt_string[:500]}...") # Log first 500 chars
+
                 merge_result_obj = await llm_gemini.ainvoke(
-                    merge_prompt.format(**format_kwargs),
+                    formatted_prompt_string, # Send the pre-formatted string
                     config=llm_config # Pass dynamic config
                 )
                 response_text = merge_result_obj.content if isinstance(merge_result_obj, AIMessage) else str(merge_result_obj)
@@ -350,4 +361,4 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True)
+    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)), reload=True)
