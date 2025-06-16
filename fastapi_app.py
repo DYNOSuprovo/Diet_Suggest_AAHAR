@@ -430,10 +430,3 @@ async def chat(chat_request: ChatRequest, request: Request):
         logging.warning(f"⚠️ Google Sheet logging failed: {e}", exc_info=True)
 
     return JSONResponse(content={"answer": response_text, "session_id": session_id})
-if __name__ == "__main__":
-
-    import uvicorn
-
-    # The default port for Render is 10000, but use 8000 for local development if not set
-
-    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)), reload=True) # reload=True for dev
