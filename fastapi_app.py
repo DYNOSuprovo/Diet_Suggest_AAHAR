@@ -98,7 +98,7 @@ else:
 app = FastAPI(
     title="Indian Diet Recommendation API",
     description="A backend API for personalized Indian diet suggestions using RAG and LLMs.",
-    version="0.2.2", # Incremented version
+    version="0.2.4", # Incremented version
 )
 app.add_middleware(
     CORSMiddleware,
@@ -200,8 +200,7 @@ async def chat(chat_request: ChatRequest, request: Request):
     logging.info(f"🔍 Query Metadata: {query_metadata}")
 
     response_text = ""
-    chat_history = get_session_history(session_id).messages 
-
+    
     try:
         # --- Intent-Based Routing ---
         if query_metadata["primary_intent_type"] == "greeting":
@@ -216,6 +215,7 @@ async def chat(chat_request: ChatRequest, request: Request):
             response_text = generic_response_obj.content if isinstance(generic_response_obj, AIMessage) else str(generic_response_obj)
             
         elif query_metadata["primary_intent_type"] == "formatting" and query_metadata["is_follow_up"]:
+            chat_history = get_session_history(session_id).messages # Retrieve history inside the block
             last_ai_message_content = None
             for msg in reversed(chat_history):
                 # Heuristic to find a substantial AI diet plan message
@@ -250,6 +250,26 @@ async def chat(chat_request: ChatRequest, request: Request):
             else:
                 response_text = "I can only re-format a previous diet plan. Please ask for a diet plan first!"
                 
+            # Add user and AI messages to session history for formatting queries too
+            get_session_history(session_id).add_user_message(user_query)
+            get_session_history(session_id).add_ai_message(response_text)
+            
+            # Log to Google Sheet for formatting queries as well, then return
+            try:
+                if sheet_enabled and sheet:
+                    sheet.append_row([
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        session_id,
+                        user_query,
+                        response_text 
+                    ])
+                    logging.info("📝 Logged query and response to Google Sheet.")
+            except Exception as e:
+                logging.warning(f"⚠️ Google Sheet logging failed: {e}", exc_info=True)
+            
+            return JSONResponse(content={"answer": response_text, "session_id": session_id})
+
+
         else: # primary_intent_type is "task" or a formatting request with task keywords
             logging.info("Handling task-oriented query (RAG + Groq + Merge).")
             
@@ -259,12 +279,14 @@ async def chat(chat_request: ChatRequest, request: Request):
                 "region": query_metadata["region"],
                 "disease": query_metadata["disease"] 
             }
+            
+            chat_history = get_session_history(session_id).messages # Retrieve history here for RAG
 
             rag_output_content = "No answer from RAG." 
             try:
                 rag_result = await conversational_qa_chain.ainvoke({
                     "query": user_query,
-                    "chat_history": chat_history,
+                    "chat_history": chat_history, # Use chat_history here
                     **user_params 
                 }, config=llm_config)
                 
@@ -275,13 +297,15 @@ async def chat(chat_request: ChatRequest, request: Request):
                 rag_output_content = "Error while retrieving response from knowledge base."
 
             # Define common phrases where RAG indicates it needs more info
+            # Keep these specific to RAG's refusal/context-lacking messages
             rag_refusal_phrases = [
                 "I need more information",
                 "please provide more details",
                 "context insufficient",
                 "cannot provide a detailed plan",
                 "please specify",
-                "not suitable for everyone" # Added this specific phrase from your logs
+                "not suitable for everyone", 
+                "only indicates a general request" 
             ]
             
             # Convert to lowercase for case-insensitive check
@@ -291,6 +315,25 @@ async def chat(chat_request: ChatRequest, request: Request):
             if any(phrase in rag_output_lower for phrase in rag_refusal_phrases):
                 logging.info(f"💡 RAG chain indicated more information is needed. Skipping Groq/Merge and returning specific guidance.")
                 response_text = "To provide a tailored diet plan, I need a bit more detail. Could you please specify things like age, gender, activity level, or any dietary preferences (vegetarian, non-vegetarian, vegan, etc.) or health conditions (like diabetes, high BP)? This will help me give you a more personalized and effective plan."
+                
+                # Add user and AI messages to session history for task-refusal queries
+                get_session_history(session_id).add_user_message(user_query)
+                get_session_history(session_id).add_ai_message(response_text)
+                
+                # Log to Google Sheet for task-refusal queries, then return
+                try:
+                    if sheet_enabled and sheet:
+                        sheet.append_row([
+                            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            session_id,
+                            user_query,
+                            response_text 
+                        ])
+                        logging.info("📝 Logged query and response to Google Sheet.")
+                except Exception as e:
+                    logging.warning(f"⚠️ Google Sheet logging failed: {e}", exc_info=True)
+                
+                return JSONResponse(content={"answer": response_text, "session_id": session_id})
             else:
                 # Proceed with Groq and Merge only if RAG provided a substantive answer
                 groq_suggestions = {}
@@ -347,11 +390,33 @@ async def chat(chat_request: ChatRequest, request: Request):
         logging.error(f"❌ Unhandled error in /chat endpoint: {e}", exc_info=True)
         response_text = "I'm sorry, an unexpected error occurred. Please try again."
 
-    # Add user and AI messages to session history
-    get_session_history(session_id).add_user_message(user_query)
-    get_session_history(session_id).add_ai_message(response_text)
+    # The following block is now redundant and should be removed or moved inside specific branches
+    # get_session_history(session_id).add_user_message(user_query)
+    # get_session_history(session_id).add_ai_message(response_text)
 
-    # Log to Google Sheet
+    # try:
+    #     if sheet_enabled and sheet:
+    #         sheet.append_row([
+    #             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    #             session_id,
+    #             user_query,
+    #             response_text 
+    #         ])
+    #         logging.info("📝 Logged query and response to Google Sheet.")
+    # except Exception as e:
+    #     logging.warning(f"⚠️ Google Sheet logging failed: {e}", exc_info=True)
+
+    # return JSONResponse(content={"answer": response_text, "session_id": session_id})
+
+    # The final logging and return must happen consistently for all paths
+    logging.info(f"Final response for session {session_id}: {response_text[:200]}...") # Log final response
+    try:
+        get_session_history(session_id).add_user_message(user_query)
+        get_session_history(session_id).add_ai_message(response_text)
+    except Exception as e:
+        logging.error(f"❌ Error adding to chat history: {e}", exc_info=True)
+        # This error shouldn't stop the response, just log it.
+
     try:
         if sheet_enabled and sheet:
             sheet.append_row([
@@ -364,13 +429,4 @@ async def chat(chat_request: ChatRequest, request: Request):
     except Exception as e:
         logging.warning(f"⚠️ Google Sheet logging failed: {e}", exc_info=True)
 
-    # Return the response as JSON
     return JSONResponse(content={"answer": response_text, "session_id": session_id})
-
-@app.get("/")
-async def root():
-    return {"message": "✅ Indian Diet Recommendation API is running. Use POST /chat to interact."}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("fastapi_app:app", host="0.0.0.0", port=int(os.getenv("PORT", 8000)), reload=True)
