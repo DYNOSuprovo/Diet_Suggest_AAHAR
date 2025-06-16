@@ -115,7 +115,7 @@ def setup_qa_chain(llm_gemini: GoogleGenerativeAI, db: Chroma, rag_prompt: Promp
             | rag_prompt
             | llm_gemini
             | StrOutputParser() # Ensure LLM output is a string before putting in 'answer' key
-            | {"answer": RunnablePassthrough()} # <--- CRITICAL: Wrap the string output in a dict with 'answer' key
+            | {"answer": RunnablePassthrough()} # CRITICAL: Wrap the string output in a dict with 'answer' key
         )
         logging.info("Retrieval QA Chain initialized successfully (returns dict with 'answer' key).")
         return qa_chain
@@ -136,7 +136,7 @@ def setup_conversational_qa_chain(qa_chain):
         get_session_history,
         input_messages_key="query",
         history_messages_key="chat_history",
-        output_messages_key="answer" # <--- IMPORTANT: This tells it to expect 'answer' in the wrapped chain's output
+        output_messages_key="answer" # IMPORTANT: This tells it to expect 'answer' in the wrapped chain's output
     )
     logging.info("Conversational QA Chain initialized (with output_messages_key).")
     return conversational_qa_chain
@@ -146,6 +146,7 @@ def define_merge_prompt_templates():
     """
     Defines multiple prompt templates for merging RAG and Groq outputs
     into a final, coherent response, supporting different formatting requests.
+    MODIFIED: Added instructions to handle RAG answers that are requests for more information.
     """
     # Default merge prompt for general responses
     merge_prompt_default_template = """
@@ -159,8 +160,8 @@ def define_merge_prompt_templates():
     Additional AI Suggestions (from other LLMs for diverse ideas):\n{additional_suggestions_section}
 
     Instructions:
-    1. Prioritize the "Primary RAG Answer" if it is specific, relevant, and not an error message.
-    2. If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error, then heavily rely on and synthesize from the "Additional Suggestions".
+    1. **Handle RAG Answer Gracefully:** If the "Primary RAG Answer" is a request for more information (e.g., "I need more details...", "Please specify...", "Context insufficient"), then primarily synthesize a helpful diet suggestion using the "Additional AI Suggestions" and general knowledge. Do NOT repeat the RAG's request for information.
+    2. Otherwise, prioritize and combine information from the "Primary RAG Answer" with "Additional AI Suggestions".
     3. Combine information logically and seamlessly, without explicitly mentioning the source of each piece (e.g., "from RAG," "Groq said").
     4. Ensure the final plan is clear, actionable, culturally relevant, and addresses the user's stated dietary type, goal, region, and disease condition.
     5. Maintain a helpful and professional tone.
@@ -182,8 +183,8 @@ def define_merge_prompt_templates():
     Additional AI Suggestions (from other LLMs for diverse ideas):\n{additional_suggestions_section}
 
     Instructions:
-    1. Prioritize the "Primary RAG Answer" if it is specific, relevant, and not an error message.
-    2. If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error, then heavily rely on and synthesize from the "Additional Suggestions".
+    1. **Handle RAG Answer Gracefully:** If the "Primary RAG Answer" is a request for more information (e.g., "I need more details...", "Please specify...", "Context insufficient"), then primarily synthesize a helpful diet suggestion using the "Additional AI Suggestions" and general knowledge. Do NOT repeat the RAG's request for information.
+    2. Otherwise, prioritize and combine information from the "Primary RAG Answer" with "Additional AI Suggestions".
     3. Combine information logically and seamlessly, without explicitly mentioning the source of each piece.
     4. Ensure the final plan is clear, actionable, and culturally relevant.
     5. **Strictly adhere to markdown table format.**
@@ -206,8 +207,8 @@ def define_merge_prompt_templates():
     Additional AI Suggestions (from other LLMs for diverse ideas):\n{additional_suggestions_section}
 
     Instructions:
-    1. Prioritize the "Primary RAG Answer" if it is specific, relevant, and not an error message.
-    2. If the "Primary RAG Answer" is generic, insufficient, or indicates an internal system error, then heavily rely on and synthesize from the "Additional Suggestions".
+    1. **Handle RAG Answer Gracefully:** If the "Primary RAG Answer" is a request for more information (e.g., "I need more details...", "Please specify...", "Context insufficient"), then primarily synthesize a helpful diet suggestion using the "Additional AI Suggestions" and general knowledge. Do NOT repeat the RAG's request for information.
+    2. Otherwise, prioritize and combine information from the "Primary RAG Answer" with "Additional AI Suggestions".
     3. Combine information logically and seamlessly, without explicitly mentioning the source of each piece.
     4. Ensure the final plan is clear, actionable, and culturally relevant.
     5. **Strictly present the diet plan as continuous paragraphs.**
