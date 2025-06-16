@@ -102,7 +102,7 @@ else:
 app = FastAPI(
     title="Indian Diet Recommendation API",
     description="A backend API for personalized Indian diet suggestions using RAG and LLMs.",
-    version="0.2.0", # Increment version as changes are made
+    version="0.2.1", # Increment version for this fix
 )
 # CORS configuration for frontend access
 app.add_middleware(
@@ -226,15 +226,18 @@ async def chat(chat_request: ChatRequest, request: Request):
                     merge_prompt.format(
                         rag_section=f"Previous Answer:\n{last_ai_message_content}",
                         additional_suggestions_section="No new suggestions needed for reformatting.",
-                        query=user_query, # Pass user query for context if needed in prompt
-                        **user_params # Pass extracted params for prompt context
+                        # Only include parameters that exist in the old merge prompt template
+                        dietary_type=user_params.get("dietary_type", "any"), 
+                        goal=user_params.get("goal", "general"),     
+                        region=user_params.get("region", "Indian"),    
                     ),
                     config={
                         "callbacks": [SafeTracer()],
                         "configurable": {"session_id": session_id}
                     }
                 )
-                response_text = final_output_obj.content
+                # FIX: Robustly extract content from LLM response
+                response_text = final_output_obj.content if isinstance(final_output_obj, AIMessage) else str(final_output_obj)
             except Exception as e:
                 logging.error(f"❌ Reformat error: {e}", exc_info=True)
                 response_text = "I encountered an issue reformatting the previous response. Please try again."
@@ -278,31 +281,7 @@ async def chat(chat_request: ChatRequest, request: Request):
 
         final_output_content = "Something went wrong while combining AI suggestions."
         try:
-            format_kwargs = {
-                "rag_section": f"Primary RAG Answer:\n{rag_output_content}",
-                "additional_suggestions_section": (
-                    f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
-                    f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
-                    f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
-                ),
-                "query": user_query,
-                "dietary_type": user_params.get("dietary_type", "any"),
-                "goal": user_params.get("goal", "general"),
-                "region": user_params.get("region", "Indian"),
-                "disease_section": "" # Older code didn't have disease, so ensure it's empty
-            }
-            # The older merge prompts only had "rag_section", "additional_suggestions_section", "dietary_type", "goal", "region"
-            # It's crucial to match the input_variables of the prompt template here.
-            # Assuming the old merge prompts had {query} too from the previous context.
-            # Let's adjust format_kwargs to strictly match the older merge prompt's variables,
-            # which are less comprehensive than the ones I was using.
-            
-            # Re-checking the older prompt template from your input:
-            # input_variables=["rag_section", "additional_suggestions_section", "dietary_type", "goal", "region"]
-            # No "query" or "disease_section" in older merge prompts.
-            # This is a key finding!
-
-            # ADJUSTED format_kwargs to match the old merge prompt's expected variables
+            # ADJUSTED format_kwargs to strictly match the old merge prompt's expected variables
             strict_old_format_kwargs = {
                 "rag_section": f"Primary RAG Answer:\n{rag_output_content}",
                 "additional_suggestions_section": (
@@ -323,7 +302,8 @@ async def chat(chat_request: ChatRequest, request: Request):
                     "configurable": {"session_id": session_id}
                 }
             )
-            final_output_content = merge_result_obj.content # Assuming AIMessage.content as before
+            # FIX: Robustly extract content from LLM response
+            final_output_content = merge_result_obj.content if isinstance(merge_result_obj, AIMessage) else str(merge_result_obj)
         except Exception as e:
             logging.error(f"❌ Merge process error: {type(e).__name__}: {e}", exc_info=True)
             final_output_content = "I encountered an issue generating a comprehensive diet plan. Please try again."
