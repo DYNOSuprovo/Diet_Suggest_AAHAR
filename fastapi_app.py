@@ -137,7 +137,7 @@ def cached_groq_answers(query: str, groq_api_key: str, dietary_type: str, goal: 
     """
     logging.info(f"Fetching Groq answers for query: '{query}', pref: '{dietary_type}', goal: '{goal}', region: '{region}'")
     # Added 'mistral-saba' and updated 'mixtral' model for better compatibility
-    models = ["llama", "mixtral", "gemma", "mistral-saba"] 
+    models = ["llama","gemma", "mistral-saba"] 
     results = {}
     if not groq_api_key:
         logging.warning("GROQ_API_KEY not available. Skipping Groq calls.")
@@ -150,7 +150,6 @@ def cached_groq_answers(query: str, groq_api_key: str, dietary_type: str, goal: 
             headers = {"Authorization": f"Bearer {groq_api_key}", "Content-Type": "application/json"}
             groq_model_map = {
                 "llama": "llama3-70b-8192",
-                "mixtral": "mixtral-8x7b-32768",  # Updated to a commonly available Mixtral ID
                 "gemma": "gemma2-9b-it",
                 "mistral-saba": "mistral-saba-24b" # Added Mistral Saba 24B
             }
