@@ -45,8 +45,14 @@ class SafeTracer(BaseCallbackHandler):
     """
     def on_chain_end(self, outputs: dict, **kwargs):
         try:
-            if isinstance(outputs, dict) and "answer" in outputs:
-                logging.info(f"🔁 Chain ended. Answer snippet: {outputs['answer'][:100]}...")
+            # Check for 'answer' key, then 'output', then just log the dictionary
+            if isinstance(outputs, dict):
+                if "answer" in outputs:
+                    logging.info(f"🔁 Chain ended. Answer snippet: {outputs['answer'][:100]}...")
+                elif "output" in outputs: # Sometimes chains might have 'output' key
+                    logging.info(f"🔁 Chain ended. Output snippet: {outputs['output'][:100]}...")
+                else: # Fallback for other dict structures
+                    logging.info(f"🔁 Chain ended. Output (type: {type(outputs)}, content snippet): {str(outputs)[:100]}...")
             else:
                 # Log a more specific type if it's not a dict, to help debug
                 logging.info(f"🔁 Chain ended. Output (type: {type(outputs)}, content snippet): {str(outputs)[:100]}...")
@@ -136,8 +142,8 @@ def cached_groq_answers(query: str, groq_api_key: str, dietary_type: str, goal: 
     Uses ThreadPoolExecutor for concurrent synchronous API calls.
     """
     logging.info(f"Fetching Groq answers for query: '{query}', pref: '{dietary_type}', goal: '{goal}', region: '{region}'")
-    # Added 'mistral-saba' and updated 'mixtral' model for better compatibility
-    models = ["llama","gemma", "mistral-saba"] 
+    # Removed 'mixtral' due to persistent 404 errors, kept 'mistral-saba' as requested and validated.
+    models = ["llama", "gemma", "mistral-saba"] 
     results = {}
     if not groq_api_key:
         logging.warning("GROQ_API_KEY not available. Skipping Groq calls.")
@@ -151,7 +157,7 @@ def cached_groq_answers(query: str, groq_api_key: str, dietary_type: str, goal: 
             groq_model_map = {
                 "llama": "llama3-70b-8192",
                 "gemma": "gemma2-9b-it",
-                "mistral-saba": "mistral-saba-24b" # Added Mistral Saba 24B
+                "mistral-saba": "mistral-saba-24b" # Confirmed this model name is correct and available
             }
             actual_model_name = groq_model_map.get(model_name.lower(), model_name)
             
@@ -826,7 +832,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                             )
                         except Exception as e:
                             logging.error(f"❌ Groq error in tool: {e}", exc_info=True)
-                            groq_suggestions = {"llama": "Error", "mixtral": "Error", "gemma": "Error", "mistral-saba": "Error"} # Include mistral-saba here too
+                            groq_suggestions = {"llama": "Error", "gemma": "Error", "mistral-saba": "Error"} 
 
                     merge_prompt_template = merge_prompt_table if wants_table_flag else merge_prompt_default
                     try:
@@ -834,9 +840,8 @@ async def chat(chat_request: ChatRequest, request: Request):
                             "rag_section": f"Primary RAG Answer:\n{rag_output_content}",
                             "additional_suggestions_section": (
                                 f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
-                                f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
                                 f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}\n"
-                                f"- Mistral Saba Suggestion: {groq_suggestions.get('mistral-saba', 'N/A')}" # Include mistral-saba in the merge prompt
+                                f"- Mistral Saba Suggestion: {groq_suggestions.get('mistral-saba', 'N/A')}"
                             ),
                             **user_params # Pass all user_params
                         }
