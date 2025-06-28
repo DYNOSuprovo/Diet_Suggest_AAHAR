@@ -31,6 +31,8 @@ from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda # Added RunnableLambda
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.prompt_values import StringPromptValue # Import StringPromptValue
+
 
 # Google Sheets logging
 import gspread
@@ -43,22 +45,25 @@ class SafeTracer(BaseCallbackHandler):
     Avoids breaking if output structure is unexpected.
     Logs to Python's logging system.
     """
-    def on_chain_end(self, outputs: dict, **kwargs):
+    def on_chain_end(self, outputs: Any, **kwargs): # Changed outputs type hint to Any for broader compatibility
         try:
-            # Check for specific keys first, then fallback to general dict/string representation
-            if isinstance(outputs, dict):
+            if isinstance(outputs, (AIMessage, HumanMessage, SystemMessage)):
+                logging.info(f"🔁 Chain ended. Message type: {type(outputs).__name__}, content snippet: {outputs.content[:100]}...")
+            elif isinstance(outputs, StringPromptValue): # Handle StringPromptValue specifically
+                logging.info(f"🔁 Chain ended. PromptValue content snippet: {outputs.text[:100]}...")
+            elif isinstance(outputs, dict):
                 if "answer" in outputs:
                     logging.info(f"🔁 Chain ended. Answer snippet: {outputs['answer'][:100]}...")
                 elif "output" in outputs:
                     logging.info(f"🔁 Chain ended. Output snippet: {outputs['output'][:100]}...")
-                elif "text" in outputs: # Common for simple string outputs from LLMs
+                elif "text" in outputs: # Common for simple string outputs from LLMs within a dict
                     logging.info(f"🔁 Chain ended. Text output snippet: {outputs['text'][:100]}...")
                 else: # Fallback for any other dictionary structure
                     logging.info(f"🔁 Chain ended. Output (type: {type(outputs)}, content snippet): {str(outputs)[:100]}...")
-            elif isinstance(outputs, (AIMessage, HumanMessage, SystemMessage)):
-                logging.info(f"🔁 Chain ended. Message type: {type(outputs).__name__}, content snippet: {outputs.content[:100]}...")
+            elif isinstance(outputs, str): # Direct string output
+                logging.info(f"🔁 Chain ended. String output snippet: {outputs[:100]}...")
             else:
-                # Log a more specific type if it's not a dict or a message object
+                # Catch-all for any other unexpected types
                 logging.info(f"🔁 Chain ended. Output (type: {type(outputs)}, content snippet): {str(outputs)[:100]}...")
         except Exception as e:
             logging.error(f"❌ Error in on_chain_end callback: {e}")
