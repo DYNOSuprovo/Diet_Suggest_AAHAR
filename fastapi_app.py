@@ -624,29 +624,35 @@ async def startup_event():
         conversational_qa_chain = setup_conversational_qa_chain(qa_chain)
         merge_prompt_default, merge_prompt_table = define_merge_prompt_templates()
 
-        # FIX: Ensure orchestrator_chain explicitly parses to AgentAction using RunnableLambda
         def parse_agent_action_output(llm_output: Union[AIMessage, str]) -> AgentAction:
             parser = JsonOutputParser(pydantic_object=AgentAction)
             content_str = llm_output.content if isinstance(llm_output, AIMessage) else str(llm_output)
             try:
                 parsed_output = parser.parse(content_str)
-                # Check if the parsed_output is directly an AgentAction object
-                if isinstance(parsed_output, AgentAction):
+                # FIX: Directly instantiate AgentAction if the parsed_output is a dictionary matching the schema
+                if isinstance(parsed_output, dict):
+                    return AgentAction(**parsed_output)
+                # If for some reason it's already an AgentAction instance (e.g., from a mock or direct return)
+                elif isinstance(parsed_output, AgentAction):
                     return parsed_output
-                # If it's a dict, try to extract the AgentAction from 'agent_action' key
-                elif isinstance(parsed_output, dict) and 'agent_action' in parsed_output and isinstance(parsed_output['agent_action'], dict):
-                    # Re-instantiate AgentAction from the nested dictionary
-                    return AgentAction(**parsed_output['agent_action'])
                 else:
-                    logging.error(f"Parsed output is neither AgentAction nor a dict containing it. Type: {type(parsed_output)}, Content: {parsed_output}")
+                    logging.error(f"Parsed output is neither a dict nor AgentAction instance. Type: {type(parsed_output)}, Content: {parsed_output}")
                     return AgentAction(
                         thought="Orchestrator returned unexpected structure, defaulting to error state.",
                         tool_name=None,
                         tool_input=None,
                         final_answer="An internal system error occurred due to unexpected output from the AI. Please try again."
                     )
+            except ValidationError as e:
+                logging.error(f"Pydantic validation error when parsing LLM output to AgentAction: {e}. Raw output: {content_str}")
+                return AgentAction(
+                    thought="Orchestrator returned invalid JSON format. Recalculating.", # More specific thought
+                    tool_name=None,
+                    tool_input=None,
+                    final_answer="An internal system error occurred while processing your request due to invalid AI output. Please try again."
+                )
             except Exception as e:
-                logging.error(f"Error parsing LLM output to AgentAction: {e}. Raw output: {content_str}")
+                logging.error(f"General error parsing LLM output to AgentAction: {e}. Raw output: {content_str}")
                 return AgentAction(
                     thought="Orchestrator returned malformed JSON, defaulting to error state.",
                     tool_name=None,
