@@ -749,9 +749,11 @@ async def chat(chat_request: ChatRequest, request: Request):
 
             try:
                 if tool_name == "handle_greeting":
-                    tool_output = "Namaste! How can I assist you with a healthy Indian diet today?"
+                    response_text = "Namaste! How can I assist you with a healthy Indian diet today?"
+                    break # Task complete
                 elif tool_name == "handle_identity":
-                    tool_output = "I am an AI assistant specialized in Indian diet and nutrition, created by Suprovo."
+                    response_text = "I am an AI assistant specialized in Indian diet and nutrition, created by Suprovo."
+                    break # Task complete
                 elif tool_name == "reformat_diet_plan":
                     logging.info("Executing tool: reformat_diet_plan.")
                     last_ai_message_content = None
@@ -777,8 +779,15 @@ async def chat(chat_request: ChatRequest, request: Request):
                             }
                         )
                         tool_output = reformat_response_obj.content if isinstance(reformat_response_obj, AIMessage) else str(reformat_response_obj)
+                        # If reformatting was successful, this is the final answer
+                        if tool_output and "Cannot reformat" not in tool_output:
+                            response_text = tool_output
+                            break # Task complete with reformatted plan
                     else:
                         tool_output = "Cannot reformat. No substantial previous AI message found."
+                        # Even if cannot reformat, it is a response, so break.
+                        response_text = tool_output
+                        break
 
                 elif tool_name == "generate_diet_plan":
                     logging.info("Executing tool: generate_diet_plan (RAG + Groq + Merge pipeline).")
@@ -837,34 +846,53 @@ async def chat(chat_request: ChatRequest, request: Request):
                             }
                         )
                         tool_output = merge_result_obj.content if isinstance(merge_result_obj, AIMessage) else str(merge_result_obj)
+                        # If generation was successful, this is the final answer
+                        if tool_output and "I encountered an issue" not in tool_output and "Error from RAG" not in tool_output:
+                            response_text = tool_output
+                            break # Task complete with generated plan
                     except Exception as e:
                         logging.error(f"❌ Merge process error in tool: {e}", exc_info=True)
                         tool_output = "I encountered an issue generating a comprehensive diet plan."
+                        response_text = tool_output # Even if error, it's a response, so break
+                        break
+
 
                 elif tool_name == "fetch_recipe":
                     tool_output = await tool_fetch_recipe(tool_input.get("recipe_name", "unknown"))
-                
+                    response_text = tool_output # This tool also provides a final answer
+                    break
+
                 elif tool_name == "lookup_nutrition_facts":
                     tool_output = await tool_lookup_nutrition_facts(tool_input.get("food_item", "unknown"))
+                    response_text = tool_output # This tool also provides a final answer
+                    break
 
                 else:
                     tool_output = f"Error: Unknown tool '{tool_name}' requested by agent."
                     logging.warning(tool_output)
+                    response_text = tool_output # Unknown tool implies an error that needs reporting
+                    break
 
             except Exception as e:
                 tool_output = f"Error executing tool '{tool_name}': {e}"
                 logging.error(tool_output, exc_info=True)
+                response_text = tool_output # Capture error and treat as final response for this iteration
+                break # Break on critical tool execution error
             
-            # Add the executed tool and its output to the scratchpad
-            agent_scratchpad.append({
-                "tool_name": tool_name,
-                "tool_input": tool_input,
-                "tool_output": tool_output
-            })
+            # Add the executed tool and its output to the scratchpad ONLY if the loop didn't break
+            # This ensures that if a tool yielded a final answer, it doesn't get added to scratchpad for next non-existent iteration
+            if not orchestrator_decision.final_answer and response_text == "I'm sorry, I encountered an internal issue and cannot respond right now. Please try again.": # Only add if we continue to next iteration
+                agent_scratchpad.append({
+                    "tool_name": tool_name,
+                    "tool_input": tool_input,
+                    "tool_output": tool_output
+                })
 
         else: # This 'else' block executes if the loop completes without a 'break' (i.e., no final_answer)
-            response_text = "I couldn't finalize my response after several attempts. Please try rephrasing your request."
-            logging.warning(f"Agent loop finished without final answer for session {session_id}.")
+            # This means max_agent_iterations was hit without a conclusive answer.
+            if response_text == "I'm sorry, I encountered an internal issue and cannot respond right now. Please try again.":
+                response_text = "I couldn't finalize my response after several attempts. Please try rephrasing your request."
+            logging.warning(f"Agent loop finished without explicit final answer for session {session_id}. Final response: '{response_text[:100]}'")
 
     except ValidationError as e:
         logging.error(f"❌ Pydantic validation error in agent decision: {e}", exc_info=True)
