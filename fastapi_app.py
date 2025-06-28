@@ -136,7 +136,8 @@ def cached_groq_answers(query: str, groq_api_key: str, dietary_type: str, goal: 
     Uses ThreadPoolExecutor for concurrent synchronous API calls.
     """
     logging.info(f"Fetching Groq answers for query: '{query}', pref: '{dietary_type}', goal: '{goal}', region: '{region}'")
-    models = ["llama", "mixtral", "gemma"]
+    # Added 'mistral-saba' and updated 'mixtral' model for better compatibility
+    models = ["llama", "mixtral", "gemma", "mistral-saba"] 
     results = {}
     if not groq_api_key:
         logging.warning("GROQ_API_KEY not available. Skipping Groq calls.")
@@ -149,8 +150,9 @@ def cached_groq_answers(query: str, groq_api_key: str, dietary_type: str, goal: 
             headers = {"Authorization": f"Bearer {groq_api_key}", "Content-Type": "application/json"}
             groq_model_map = {
                 "llama": "llama3-70b-8192",
-                "mixtral": "mixtral-8x7b-32976",
-                "gemma": "gemma2-9b-it"
+                "mixtral": "mixtral-8x7b-32768",  # Updated to a commonly available Mixtral ID
+                "gemma": "gemma2-9b-it",
+                "mistral-saba": "mistral-saba-24b" # Added Mistral Saba 24B
             }
             actual_model_name = groq_model_map.get(model_name.lower(), model_name)
             
@@ -825,7 +827,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                             )
                         except Exception as e:
                             logging.error(f"❌ Groq error in tool: {e}", exc_info=True)
-                            groq_suggestions = {"llama": "Error", "mixtral": "Error", "gemma": "Error"}
+                            groq_suggestions = {"llama": "Error", "mixtral": "Error", "gemma": "Error", "mistral-saba": "Error"} # Include mistral-saba here too
 
                     merge_prompt_template = merge_prompt_table if wants_table_flag else merge_prompt_default
                     try:
@@ -834,7 +836,8 @@ async def chat(chat_request: ChatRequest, request: Request):
                             "additional_suggestions_section": (
                                 f"- LLaMA Suggestion: {groq_suggestions.get('llama', 'N/A')}\n"
                                 f"- Mixtral Suggestion: {groq_suggestions.get('mixtral', 'N/A')}\n"
-                                f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}"
+                                f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}\n"
+                                f"- Mistral Saba Suggestion: {groq_suggestions.get('mistral-saba', 'N/A')}" # Include mistral-saba in the merge prompt
                             ),
                             **user_params # Pass all user_params
                         }
