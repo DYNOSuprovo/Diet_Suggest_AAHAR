@@ -530,7 +530,8 @@ sheet = None
 sheet_enabled = False
 try:
     if GOOGLE_CREDS_JSON:
-        creds_dict = json.loads(base64.b64decode(GOOGLE_CREDS_JSON).decode('utf-8')) # Decode base64
+        # Strip whitespace before decoding, as padding errors can be caused by extra chars
+        creds_dict = json.loads(base64.b64decode(GOOGLE_CREDS_JSON.strip()).decode('utf-8')) 
         creds = ServiceAccountCredentials.from_json_keyfile_dict(
             creds_dict,
             ["https://spreadsheets.google.com/feeds",
