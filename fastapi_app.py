@@ -45,19 +45,24 @@ class SafeTracer(BaseCallbackHandler):
     """
     def on_chain_end(self, outputs: dict, **kwargs):
         try:
-            # Check for 'answer' key, then 'output', then just log the dictionary
+            # Check for specific keys first, then fallback to general dict/string representation
             if isinstance(outputs, dict):
                 if "answer" in outputs:
                     logging.info(f"🔁 Chain ended. Answer snippet: {outputs['answer'][:100]}...")
-                elif "output" in outputs: # Sometimes chains might have 'output' key
+                elif "output" in outputs:
                     logging.info(f"🔁 Chain ended. Output snippet: {outputs['output'][:100]}...")
-                else: # Fallback for other dict structures
+                elif "text" in outputs: # Common for simple string outputs from LLMs
+                    logging.info(f"🔁 Chain ended. Text output snippet: {outputs['text'][:100]}...")
+                else: # Fallback for any other dictionary structure
                     logging.info(f"🔁 Chain ended. Output (type: {type(outputs)}, content snippet): {str(outputs)[:100]}...")
+            elif isinstance(outputs, (AIMessage, HumanMessage, SystemMessage)):
+                logging.info(f"🔁 Chain ended. Message type: {type(outputs).__name__}, content snippet: {outputs.content[:100]}...")
             else:
-                # Log a more specific type if it's not a dict, to help debug
+                # Log a more specific type if it's not a dict or a message object
                 logging.info(f"🔁 Chain ended. Output (type: {type(outputs)}, content snippet): {str(outputs)[:100]}...")
         except Exception as e:
             logging.error(f"❌ Error in on_chain_end callback: {e}")
+
 
 # --- Consolidated: Vector Database Setup & Download ---
 def download_and_extract_db_for_app():
