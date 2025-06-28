@@ -22,3 +22,5 @@ gdown
 pdfminer.six
 requests
 aiofiles
+fastapi
+uvicorn
