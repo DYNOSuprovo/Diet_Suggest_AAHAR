@@ -629,10 +629,24 @@ async def startup_event():
             parser = JsonOutputParser(pydantic_object=AgentAction)
             content_str = llm_output.content if isinstance(llm_output, AIMessage) else str(llm_output)
             try:
-                return parser.parse(content_str)
+                parsed_output = parser.parse(content_str)
+                # Check if the parsed_output is directly an AgentAction object
+                if isinstance(parsed_output, AgentAction):
+                    return parsed_output
+                # If it's a dict, try to extract the AgentAction from 'agent_action' key
+                elif isinstance(parsed_output, dict) and 'agent_action' in parsed_output and isinstance(parsed_output['agent_action'], dict):
+                    # Re-instantiate AgentAction from the nested dictionary
+                    return AgentAction(**parsed_output['agent_action'])
+                else:
+                    logging.error(f"Parsed output is neither AgentAction nor a dict containing it. Type: {type(parsed_output)}, Content: {parsed_output}")
+                    return AgentAction(
+                        thought="Orchestrator returned unexpected structure, defaulting to error state.",
+                        tool_name=None,
+                        tool_input=None,
+                        final_answer="An internal system error occurred due to unexpected output from the AI. Please try again."
+                    )
             except Exception as e:
                 logging.error(f"Error parsing LLM output to AgentAction: {e}. Raw output: {content_str}")
-                # Fallback for malformed output: Create a default error action
                 return AgentAction(
                     thought="Orchestrator returned malformed JSON, defaulting to error state.",
                     tool_name=None,
