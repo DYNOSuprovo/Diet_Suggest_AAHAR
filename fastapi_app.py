@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, ValidationError
 from dotenv import load_dotenv
 
 # Langchain and Google Generative AI imports
-from langchain.vectorstores import Chroma
+from langchain_community.vectorstores import Chroma # Changed from langchain.vectorstores to langchain_community.vectorstores
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, GoogleGenerativeAI
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain.prompts import PromptTemplate
@@ -102,7 +102,8 @@ def setup_vector_database(chroma_db_directory: str = "/tmp/chroma_db", in_memory
         if not api_key:
             raise EnvironmentError("GEMINI_API_KEY not set in environment variables. Please set it for Gemini API access.")
         
-        embedding = GoogleGenerativeAIEmbed_embeddings(
+        # FIX: Corrected typo in GoogleGenerativeAIEmbeddings
+        embedding = GoogleGenerativeAIEmbeddings(
             model="models/embedding-001",
             google_api_key=api_key
         )
