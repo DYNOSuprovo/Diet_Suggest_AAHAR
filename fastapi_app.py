@@ -629,10 +629,14 @@ async def startup_event():
             content_str = llm_output.content if isinstance(llm_output, AIMessage) else str(llm_output)
             try:
                 parsed_output = parser.parse(content_str)
-                # FIX: Directly instantiate AgentAction if the parsed_output is a dictionary matching the schema
+                # FIX: Handle cases where `parsed_output` directly contains the AgentAction data
+                # or where it's nested under an 'agent_action' key.
                 if isinstance(parsed_output, dict):
-                    return AgentAction(**parsed_output)
-                # If for some reason it's already an AgentAction instance (e.g., from a mock or direct return)
+                    if 'agent_action' in parsed_output and isinstance(parsed_output['agent_action'], dict):
+                        return AgentAction(**parsed_output['agent_action'])
+                    else:
+                        # Assume parsed_output is directly the AgentAction data
+                        return AgentAction(**parsed_output)
                 elif isinstance(parsed_output, AgentAction):
                     return parsed_output
                 else:
