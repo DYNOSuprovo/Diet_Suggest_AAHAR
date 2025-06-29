@@ -24,3 +24,4 @@ requests
 aiofiles
 fastapi
 uvicorn
+langchain-chroma
