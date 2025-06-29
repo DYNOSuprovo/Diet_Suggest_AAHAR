@@ -22,7 +22,8 @@ from pydantic import BaseModel, Field, ValidationError
 from dotenv import load_dotenv
 
 # Langchain and Google Generative AI imports
-from langchain_community.vectorstores import Chroma # Changed from langchain.vectorstores to langchain_community.vectorstores
+# Updated Chroma import to address deprecation warning
+from langchain_chroma import Chroma 
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, GoogleGenerativeAI
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain.prompts import PromptTemplate
@@ -541,6 +542,9 @@ GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Diet Suggest Logs")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger('langchain_community.chat_message_histories.in_memory').setLevel(logging.WARNING)
 logging.getLogger('httpx').setLevel(logging.WARNING)
+# Suppress the new langchain_chroma warnings if desired (will still appear from old langchain_community if both present)
+logging.getLogger('langchain_chroma.base').setLevel(logging.WARNING)
+
 
 # --- Google Sheets Setup ---
 sheet = None
