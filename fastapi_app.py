@@ -456,14 +456,41 @@ async def tool_lookup_nutrition_facts(food_item: str) -> str:
     logging.info(f"Executing tool: lookup_nutrition_facts for '{food_item}'")
     import asyncio
     await asyncio.sleep(0.5)
-    if "rice" in food_item.lower():
+    
+    clean_food_item = food_item.lower().strip()
+
+    if "rice" in clean_food_item:
         return f"Nutrition facts for {food_item} (per 100g cooked): Calories: 130, Carbs: 28g, Protein: 2.7g, Fat: 0.3g."
-    elif "lentils" in food_item.lower():
+    elif "lentils" in clean_food_item:
         return f"Nutrition facts for {food_item} (per 100g cooked): Calories: 116, Carbs: 20g, Protein: 9g, Fat: 0.4g. Rich in fiber."
-    elif "avocado" in food_item.lower(): # Added specific placeholder
+    elif "avocado" in clean_food_item:
         return f"Nutrition facts for {food_item} (per 100g): Calories: 160, Fat: 14.7g (mostly healthy monounsaturated), Carbs: 8.5g, Protein: 2g."
+    elif "pineapple" in clean_food_item: # Added specific placeholder
+        return f"Nutrition facts for {food_item} (per 100g): Calories: 50, Carbs: 13g, Protein: 0.5g, Fat: 0.1g. Rich in Vitamin C and Manganese."
+    elif "non veg vs veg" in clean_food_item or "non-veg vs veg" in clean_food_item or "non-vegetarian vs vegetarian" in clean_food_item:
+        return (
+            "Comparing non-vegetarian vs. vegetarian nutrition:\n\n"
+            "**Non-Vegetarian (e.g., Chicken Breast - 100g cooked):**\n"
+            "  - Calories: ~165 kcal\n"
+            "  - Protein: ~31g (complete protein)\n"
+            "  - Fat: ~3.6g (low in saturated fat if skinless)\n"
+            "  - Key nutrients: B vitamins, iron, zinc.\n\n"
+            "**Vegetarian (e.g., Cooked Lentils - 100g):**\n"
+            "  - Calories: ~116 kcal\n"
+            "  - Protein: ~9g (incomplete, but can be complete with grains)\n"
+            "  - Fat: ~0.4g (very low)\n"
+            "  - Key nutrients: Fiber, folate, potassium, iron (non-heme).\n\n"
+            "**Vegetarian (e.g., Paneer - 100g):**\n"
+            "  - Calories: ~265 kcal\n"
+            "  - Protein: ~18g\n"
+            "  - Fat: ~20g (higher in saturated fat)\n"
+            "  - Key nutrients: Calcium, Vitamin D.\n\n"
+            "Overall, non-vegetarian options often provide complete proteins and higher iron/B12, "
+            "while vegetarian diets excel in fiber, diverse micronutrients (from varied plant sources), "
+            "and can be lower in saturated fat if plant-based proteins are prioritized. Careful planning ensures adequate nutrition in both."
+        )
     else:
-        return f"Nutrition facts for {food_item}: Calories, carbs, protein, and fat vary. Generally healthy."
+        return f"Nutrition facts for {food_item}: Calories, carbs, protein, and fat vary. Generally healthy. For specific data, please specify a single, common food item."
 
 # --- Agentic Orchestration Pydantic Model ---
 class AgentAction(BaseModel):
@@ -510,7 +537,7 @@ Available Tools:
 6.  **`lookup_nutrition_facts`**:
     * **Description**: Look up basic nutrition facts for a given food item.
     * **Input**: `food_item: string` (e.g., "rice", "lentils").
-    * **When to use**: If the user explicitly asks for "nutrition facts for X", "calories in Y", "protein in Z".
+    * **When to use**: If the user explicitly asks for "nutrition facts for X", "calories in Y", "protein in Z", "nutritional value of A", or a comparison like "non veg vs veg nutrition".
 
 **Agent's State:**
 You have access to the current `chat_history` and `current_user_query`.
