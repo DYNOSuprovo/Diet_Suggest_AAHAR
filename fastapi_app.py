@@ -651,6 +651,7 @@ async def startup_event():
             """
             Parses the LLM output (which should be JSON) into an AgentAction Pydantic model.
             Handles cases where LLM output might contain markdown fences or extra text.
+            Also handles nested 'agent_action' keys.
             """
             parser = JsonOutputParser(pydantic_object=AgentAction)
             content_str = llm_output.content if isinstance(llm_output, AIMessage) else str(llm_output)
@@ -663,7 +664,13 @@ async def startup_event():
                 json_str = content_str.strip() # Assume it's direct JSON
 
             try:
-                parsed_output = parser.parse(json_str)
+                raw_dict = json.loads(json_str)
+                # Check for nested 'agent_action' key
+                if isinstance(raw_dict, dict) and "agent_action" in raw_dict:
+                    parsed_output = parser.parse(json.dumps(raw_dict["agent_action"])) # Parse the inner dictionary
+                else:
+                    parsed_output = parser.parse(json_str) # Parse the top-level string directly
+
                 # Ensure it's an AgentAction instance, not just a dict
                 if isinstance(parsed_output, dict):
                     return AgentAction(**parsed_output)
