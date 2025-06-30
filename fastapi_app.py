@@ -743,7 +743,7 @@ async def chat(chat_request: ChatRequest, request: Request):
     max_agent_iterations = 5 # Limit the number of steps to prevent infinite loops
     agent_scratchpad: List[Dict[str, Any]] = [] # Stores (tool_name, tool_input, tool_output) history
 
-    try: # <--- This is the 'try' block that Python's parser is referring to.
+    try:
         for i in range(max_agent_iterations):
             logging.info(f"🔄 Agent Iteration {i+1}/{max_agent_iterations}")
             
@@ -754,7 +754,6 @@ async def chat(chat_request: ChatRequest, request: Request):
             ])
 
             # --- AGENTIC ROUTING: Invoke the Orchestrator LLM ---
-            # orchestrator_decision will now always be an AgentAction object due to RunnableLambda
             orchestrator_decision: AgentAction = await orchestrator_chain.ainvoke({
                 "query": user_query,
                 "chat_history": formatted_chat_history,
@@ -777,21 +776,19 @@ async def chat(chat_request: ChatRequest, request: Request):
             tool_input = orchestrator_decision.tool_input if orchestrator_decision.tool_input is not None else {}
             tool_output = "Error: Tool execution failed." # Default if tool fails
 
-            # This inner try-except block wraps all tool execution logic for safety.
             try: 
                 if tool_name == "handle_greeting":
                     response_text = "Namaste! How can I assist you with a healthy Indian diet today?"
-                    tool_output = response_text # Set tool_output for scratchpad
-                    break # Task complete
+                    tool_output = response_text
+                    break # Task complete (single-turn greeting)
                 elif tool_name == "handle_identity":
                     response_text = "I am an AI assistant specialized in Indian diet and nutrition, created by Suprovo."
-                    tool_output = response_text # Set tool_output for scratchpad
-                    break # Task complete
+                    tool_output = response_text
+                    break # Task complete (single-turn identity)
                 elif tool_name == "reformat_diet_plan":
                     logging.info("Executing tool: reformat_diet_plan.")
                     last_ai_message_content = None
                     for msg in reversed(chat_history_lc):
-                        # Ensure message is from AI and has substantial content
                         if isinstance(msg, AIMessage) and msg.content and len(msg.content) > 50:
                             last_ai_message_content = msg.content
                             break
@@ -803,7 +800,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                             merge_prompt_template.format(
                                 rag_section=f"Previous Answer to Reformat:\n{last_ai_message_content}",
                                 additional_suggestions_section="No new suggestions needed for reformatting, just reformat the above.",
-                                dietary_type=tool_input.get("dietary_type", "any"), # Provide defaults if LLM doesn't set
+                                dietary_type=tool_input.get("dietary_type", "any"),
                                 goal=tool_input.get("goal", "diet"),     
                                 region=tool_input.get("region", "Indian"),    
                             ),
@@ -813,17 +810,11 @@ async def chat(chat_request: ChatRequest, request: Request):
                             }
                         )
                         tool_output = reformat_response_obj.content if isinstance(reformat_response_obj, AIMessage) else str(reformat_response_obj)
-                        # If reformatting was successful, this is the final answer
-                        if tool_output and "Cannot reformat" not in tool_output:
-                            response_text = tool_output
-                            break # Task complete with reformatted plan
-                        else:
-                             # Even if reformatting failed (e.g., LLM couldn't reformat), it's a final response
-                            response_text = tool_output or "I couldn't reformat the previous response as requested."
-                            break
+                        response_text = tool_output # Reformatting provides the final answer for that request
+                        break 
                     else:
                         tool_output = "I cannot reformat. No substantial previous AI message found in the chat history that looks like a diet plan."
-                        response_text = tool_output # Cannot reformat is also a final response
+                        response_text = tool_output 
                         break
 
                 elif tool_name == "generate_diet_plan":
@@ -836,9 +827,9 @@ async def chat(chat_request: ChatRequest, request: Request):
                     wants_table_flag = tool_input.get("wants_table", False)
 
                     rag_output_content = "Error from RAG."
-                    try: # Nested try for RAG
+                    try:
                         rag_result = await conversational_qa_chain.ainvoke({
-                            "query": user_query, # Still use original query for RAG
+                            "query": user_query,
                             "chat_history": chat_history_lc,
                             **user_params
                         }, config={
@@ -852,7 +843,7 @@ async def chat(chat_request: ChatRequest, request: Request):
 
                     groq_suggestions = {}
                     if GROQ_API_KEY:
-                        try: # Nested try for Groq
+                        try:
                             groq_suggestions = cached_groq_answers(
                                 query=user_query,
                                 groq_api_key=GROQ_API_KEY,
@@ -865,7 +856,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                             groq_suggestions = {"llama": "Error", "gemma": "Error", "mistral-saba": "Error"} 
 
                     merge_prompt_template = merge_prompt_table if wants_table_flag else merge_prompt_default
-                    try: # Nested try for Merge
+                    try:
                         merge_input_kwargs = {
                             "rag_section": f"Primary RAG Answer:\n{rag_output_content}",
                             "additional_suggestions_section": (
@@ -873,7 +864,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                                 f"- Gemma Suggestion: {groq_suggestions.get('gemma', 'N/A')}\n"
                                 f"- Mistral Saba Suggestion: {groq_suggestions.get('mistral-saba', 'N/A')}"
                             ),
-                            **user_params # Pass all user_params
+                            **user_params
                         }
                         merge_result_obj = await llm_gemini.ainvoke(
                             merge_prompt_template.format(**merge_input_kwargs),
@@ -883,64 +874,55 @@ async def chat(chat_request: ChatRequest, request: Request):
                             }
                         )
                         tool_output = merge_result_obj.content if isinstance(merge_result_obj, AIMessage) else str(merge_result_obj)
-                        # If generation was successful, this is the final answer
-                        if tool_output and "I encountered an issue" not in tool_output and "Error from RAG" not in tool_output:
-                            response_text = tool_output
-                            break # Task complete with generated plan
-                        else:
-                            # If merge itself failed, treat it as the final response for this tool attempt
-                            response_text = tool_output or "I encountered an issue generating a comprehensive diet plan."
-                            break
-                    except Exception as e: # This except closes the merge try block
+                        response_text = tool_output # This tool now always provides the final answer for diet generation
+                        break # Diet generation is considered a terminal action for the agent loop
+                    except Exception as e:
                         logging.error(f"❌ Merge error in generate_diet_plan tool: {e}", exc_info=True)
                         tool_output = "Error during diet plan generation (merge step)."
-                        response_text = tool_output # Treat as final response if merge fails
-                        break
+                        response_text = tool_output
+                        break # Treat as final response if merge fails
 
 
-                elif tool_name == "fetch_recipe": # This is the line that was throwing the error
+                elif tool_name == "fetch_recipe":
+                    # Removed 'break' here. This tool's output will now be added to scratchpad,
+                    # and the agent can decide next if other tools are needed.
                     tool_output = await tool_fetch_recipe(tool_input.get("recipe_name", "unknown"))
-                    response_text = tool_output # This tool also provides a final answer
-                    break
+                    # The response_text is set below, after the agent loop, by the orchestrator's final_answer
+                    # We just capture the tool_output here for the scratchpad.
 
                 elif tool_name == "lookup_nutrition_facts":
+                    # Removed 'break' here. Similar to fetch_recipe, its output is for scratchpad.
                     tool_output = await tool_lookup_nutrition_facts(tool_input.get("food_item", "unknown"))
-                    response_text = tool_output # This tool also provides a final answer
-                    break
+                    # The response_text is set below, after the agent loop, by the orchestrator's final_answer
 
                 else:
                     tool_output = f"Error: Unknown tool '{tool_name}' requested by agent."
                     logging.warning(tool_output)
-                    response_text = tool_output # Unknown tool implies an error that needs reporting
-                    break
+                    response_text = tool_output
+                    break # Unknown tool implies an unrecoverable error for this turn
 
-            except Exception as e: # This except closes the inner try block (line ~828)
+            except Exception as e:
                 tool_output = f"Error executing tool '{tool_name}': {e}"
                 logging.error(tool_output, exc_info=True)
-                response_text = tool_output # Capture error and treat as final response for this iteration
+                response_text = tool_output
                 break # Break on critical tool execution error
             
-            # Add the executed tool and its output to the scratchpad ONLY if the loop didn't break
-            # This ensures that if a tool yielded a final answer, it doesn't get added to scratchpad for next non-existent iteration
-            # Check if a final answer was *not* provided AND if the response_text is still the generic error
-            # or if the tool execution implies continuation (i.e., not a final_answer producing tool)
-            if not orchestrator_decision.final_answer and (response_text == "I'm sorry, I encountered an internal issue and cannot respond right now. Please try again." or tool_name not in ["handle_greeting", "handle_identity", "fetch_recipe", "lookup_nutrition_facts"]):
-                agent_scratchpad.append({
-                    "tool_name": tool_name,
-                    "tool_input": tool_input,
-                    "tool_output": tool_output
-                })
+            # Add the executed tool and its output to the scratchpad
+            agent_scratchpad.append({
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "tool_output": tool_output
+            })
 
         else: # This 'else' block executes if the loop completes without a 'break' (i.e., no final_answer)
-            # This means max_agent_iterations was hit without a conclusive answer.
             if response_text == "I'm sorry, I encountered an internal issue and cannot respond right now. Please try again.":
                 response_text = "I couldn't finalize my response after several attempts. Please try rephrasing your request."
             logging.warning(f"Agent loop finished without explicit final answer for session {session_id}. Final response: '{response_text[:100]}'")
 
-    except ValidationError as e: # This except closes the outer try block (line ~790)
+    except ValidationError as e:
         logging.error(f"❌ Pydantic validation error in agent decision: {e}", exc_info=True)
         response_text = "I received an invalid instruction from my internal system. Please try again."
-    except Exception as e: # This except closes the outer try block (line ~790)
+    except Exception as e:
         logging.error(f"❌ Global error in /chat endpoint for session {session_id}: {e}", exc_info=True)
         response_text = "I'm experiencing a technical issue and cannot respond at the moment. Please try again later."
 
