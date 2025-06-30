@@ -82,7 +82,7 @@ def download_and_extract_db_for_app():
 
     os.makedirs(extract_path, exist_ok=True)
 
-    if os.path.exists(os.path.join(extract_path, "index")):
+    if os.path.exists(os.path.join(extract_path, "index")): # Check for 'index' file within the extracted path
         logging.info("✅ Chroma DB already exists, skipping download.")
         return
 
@@ -552,6 +552,8 @@ sheet_enabled = False
 try:
     if GOOGLE_CREDS_JSON:
         # Strip whitespace before decoding, as padding errors can be caused by extra chars
+        # CRITICAL: Ensure GOOGLE_CREDS_JSON on Render is a perfectly base64-encoded string
+        # with no leading/trailing spaces, newlines, or other unintended characters.
         creds_dict = json.loads(base64.b64decode(GOOGLE_CREDS_JSON.strip()).decode('utf-8')) 
         creds = ServiceAccountCredentials.from_json_keyfile_dict(
             creds_dict,
@@ -567,7 +569,7 @@ try:
     else:
         logging.warning("⚠️ GOOGLE_CREDS_JSON environment variable not set. Google Sheets disabled.")
 except (json.JSONDecodeError, UnicodeDecodeError, base64.binascii.Error) as e: # Added base64 error
-    logging.warning(f"⚠️ Error decoding or parsing GOOGLE_CREDS_JSON: {e}. Google Sheets disabled.")
+    logging.warning(f"⚠️ Error decoding or parsing GOOGLE_CREDS_JSON: {e}. Google Sheets disabled. Please check your base64 encoding for this environment variable.")
 except Exception as e:
     logging.warning(f"⚠️ Google Sheets connection failed: {e}. Logging to sheet disabled.", exc_info=True)
 
@@ -580,7 +582,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Consider restricting this in production to your frontend domain(s)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -609,7 +611,7 @@ async def startup_event():
 
     try:
         if not GEMINI_API_KEY:
-            raise EnvironmentError("GEMINI_API_KEY is not set. Please provide it in your environment variables.")
+            raise EnvironmentError("GEMINI_API_KEY is not set. Please provide it in your environment variables on Render.")
         
         llm_gemini = GoogleGenerativeAI(
             model="gemini-1.5-flash",
@@ -646,18 +648,25 @@ async def startup_event():
         merge_prompt_default, merge_prompt_table = define_merge_prompt_templates()
 
         def parse_agent_action_output(llm_output: Union[AIMessage, str]) -> AgentAction:
+            """
+            Parses the LLM output (which should be JSON) into an AgentAction Pydantic model.
+            Handles cases where LLM output might contain markdown fences or extra text.
+            """
             parser = JsonOutputParser(pydantic_object=AgentAction)
             content_str = llm_output.content if isinstance(llm_output, AIMessage) else str(llm_output)
+            
+            # Attempt to extract JSON from markdown code block if present
+            json_match = re.search(r"```json\n(.*)\n```", content_str, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1).strip()
+            else:
+                json_str = content_str.strip() # Assume it's direct JSON
+
             try:
-                parsed_output = parser.parse(content_str)
-                # FIX: Handle cases where `parsed_output` directly contains the AgentAction data
-                # or where it's nested under an 'agent_action' key.
+                parsed_output = parser.parse(json_str)
+                # Ensure it's an AgentAction instance, not just a dict
                 if isinstance(parsed_output, dict):
-                    if 'agent_action' in parsed_output and isinstance(parsed_output['agent_action'], dict):
-                        return AgentAction(**parsed_output['agent_action'])
-                    else:
-                        # Assume parsed_output is directly the AgentAction data
-                        return AgentAction(**parsed_output)
+                    return AgentAction(**parsed_output)
                 elif isinstance(parsed_output, AgentAction):
                     return parsed_output
                 else:
@@ -669,15 +678,15 @@ async def startup_event():
                         final_answer="An internal system error occurred due to unexpected output from the AI. Please try again."
                     )
             except ValidationError as e:
-                logging.error(f"Pydantic validation error when parsing LLM output to AgentAction: {e}. Raw output: {content_str}")
+                logging.error(f"Pydantic validation error when parsing LLM output to AgentAction: {e}. Raw output: {json_str}")
                 return AgentAction(
-                    thought="Orchestrator returned invalid JSON format. Recalculating.", # More specific thought
+                    thought="Orchestrator returned invalid JSON format. Recalculating.",
                     tool_name=None,
                     tool_input=None,
                     final_answer="An internal system error occurred while processing your request due to invalid AI output. Please try again."
                 )
             except Exception as e:
-                logging.error(f"General error parsing LLM output to AgentAction: {e}. Raw output: {content_str}")
+                logging.error(f"General error parsing LLM output to AgentAction: {e}. Raw output: {json_str}")
                 return AgentAction(
                     thought="Orchestrator returned malformed JSON, defaulting to error state.",
                     tool_name=None,
@@ -766,19 +775,22 @@ async def chat(chat_request: ChatRequest, request: Request):
             # Otherwise, execute the chosen tool
             tool_name = orchestrator_decision.tool_name
             tool_input = orchestrator_decision.tool_input if orchestrator_decision.tool_input is not None else {}
-            tool_output = "Error: Tool execution failed."
+            tool_output = "Error: Tool execution failed." # Default if tool fails
 
             try:
                 if tool_name == "handle_greeting":
                     response_text = "Namaste! How can I assist you with a healthy Indian diet today?"
+                    tool_output = response_text # Set tool_output for scratchpad
                     break # Task complete
                 elif tool_name == "handle_identity":
                     response_text = "I am an AI assistant specialized in Indian diet and nutrition, created by Suprovo."
+                    tool_output = response_text # Set tool_output for scratchpad
                     break # Task complete
                 elif tool_name == "reformat_diet_plan":
                     logging.info("Executing tool: reformat_diet_plan.")
                     last_ai_message_content = None
                     for msg in reversed(chat_history_lc):
+                        # Ensure message is from AI and has substantial content
                         if isinstance(msg, AIMessage) and msg.content and len(msg.content) > 50:
                             last_ai_message_content = msg.content
                             break
@@ -804,10 +816,13 @@ async def chat(chat_request: ChatRequest, request: Request):
                         if tool_output and "Cannot reformat" not in tool_output:
                             response_text = tool_output
                             break # Task complete with reformatted plan
+                        else:
+                             # Even if reformatting failed (e.g., LLM couldn't reformat), it's a final response
+                            response_text = tool_output or "I couldn't reformat the previous response as requested."
+                            break
                     else:
-                        tool_output = "Cannot reformat. No substantial previous AI message found."
-                        # Even if cannot reformat, it is a response, so break.
-                        response_text = tool_output
+                        tool_output = "I cannot reformat. No substantial previous AI message found in the chat history that looks like a diet plan."
+                        response_text = tool_output # Cannot reformat is also a final response
                         break
 
                 elif tool_name == "generate_diet_plan":
@@ -871,12 +886,10 @@ async def chat(chat_request: ChatRequest, request: Request):
                         if tool_output and "I encountered an issue" not in tool_output and "Error from RAG" not in tool_output:
                             response_text = tool_output
                             break # Task complete with generated plan
-                    except Exception as e:
-                        logging.error(f"❌ Merge process error in tool: {e}", exc_info=True)
-                        tool_output = "I encountered an issue generating a comprehensive diet plan."
-                        response_text = tool_output # Even if error, it's a response, so break
-                        break
-
+                        else:
+                            # If merge itself failed, treat it as the final response for this tool attempt
+                            response_text = tool_output or "I encountered an issue generating a comprehensive diet plan."
+                            break
 
                 elif tool_name == "fetch_recipe":
                     tool_output = await tool_fetch_recipe(tool_input.get("recipe_name", "unknown"))
@@ -902,7 +915,9 @@ async def chat(chat_request: ChatRequest, request: Request):
             
             # Add the executed tool and its output to the scratchpad ONLY if the loop didn't break
             # This ensures that if a tool yielded a final answer, it doesn't get added to scratchpad for next non-existent iteration
-            if not orchestrator_decision.final_answer and response_text == "I'm sorry, I encountered an internal issue and cannot respond right now. Please try again.": # Only add if we continue to next iteration
+            # Check if a final answer was *not* provided AND if the response_text is still the generic error
+            # or if the tool execution implies continuation (i.e., not a final_answer producing tool)
+            if not orchestrator_decision.final_answer and (response_text == "I'm sorry, I encountered an internal issue and cannot respond right now. Please try again." or tool_name not in ["handle_greeting", "handle_identity", "fetch_recipe", "lookup_nutrition_facts"]):
                 agent_scratchpad.append({
                     "tool_name": tool_name,
                     "tool_input": tool_input,
