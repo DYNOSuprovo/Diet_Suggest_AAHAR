@@ -743,7 +743,7 @@ async def chat(chat_request: ChatRequest, request: Request):
     max_agent_iterations = 5 # Limit the number of steps to prevent infinite loops
     agent_scratchpad: List[Dict[str, Any]] = [] # Stores (tool_name, tool_input, tool_output) history
 
-    try:
+    try: # <--- This is the 'try' block that Python's parser is referring to.
         for i in range(max_agent_iterations):
             logging.info(f"🔄 Agent Iteration {i+1}/{max_agent_iterations}")
             
@@ -777,7 +777,8 @@ async def chat(chat_request: ChatRequest, request: Request):
             tool_input = orchestrator_decision.tool_input if orchestrator_decision.tool_input is not None else {}
             tool_output = "Error: Tool execution failed." # Default if tool fails
 
-            try:
+            # This inner try-except block wraps all tool execution logic for safety.
+            try: 
                 if tool_name == "handle_greeting":
                     response_text = "Namaste! How can I assist you with a healthy Indian diet today?"
                     tool_output = response_text # Set tool_output for scratchpad
@@ -835,7 +836,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                     wants_table_flag = tool_input.get("wants_table", False)
 
                     rag_output_content = "Error from RAG."
-                    try:
+                    try: # Nested try for RAG
                         rag_result = await conversational_qa_chain.ainvoke({
                             "query": user_query, # Still use original query for RAG
                             "chat_history": chat_history_lc,
@@ -851,7 +852,7 @@ async def chat(chat_request: ChatRequest, request: Request):
 
                     groq_suggestions = {}
                     if GROQ_API_KEY:
-                        try:
+                        try: # Nested try for Groq
                             groq_suggestions = cached_groq_answers(
                                 query=user_query,
                                 groq_api_key=GROQ_API_KEY,
@@ -864,7 +865,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                             groq_suggestions = {"llama": "Error", "gemma": "Error", "mistral-saba": "Error"} 
 
                     merge_prompt_template = merge_prompt_table if wants_table_flag else merge_prompt_default
-                    try:
+                    try: # Nested try for Merge
                         merge_input_kwargs = {
                             "rag_section": f"Primary RAG Answer:\n{rag_output_content}",
                             "additional_suggestions_section": (
@@ -890,8 +891,14 @@ async def chat(chat_request: ChatRequest, request: Request):
                             # If merge itself failed, treat it as the final response for this tool attempt
                             response_text = tool_output or "I encountered an issue generating a comprehensive diet plan."
                             break
+                    except Exception as e: # This except closes the merge try block
+                        logging.error(f"❌ Merge error in generate_diet_plan tool: {e}", exc_info=True)
+                        tool_output = "Error during diet plan generation (merge step)."
+                        response_text = tool_output # Treat as final response if merge fails
+                        break
 
-                elif tool_name == "fetch_recipe":
+
+                elif tool_name == "fetch_recipe": # This is the line that was throwing the error
                     tool_output = await tool_fetch_recipe(tool_input.get("recipe_name", "unknown"))
                     response_text = tool_output # This tool also provides a final answer
                     break
@@ -907,7 +914,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                     response_text = tool_output # Unknown tool implies an error that needs reporting
                     break
 
-            except Exception as e:
+            except Exception as e: # This except closes the inner try block (line ~828)
                 tool_output = f"Error executing tool '{tool_name}': {e}"
                 logging.error(tool_output, exc_info=True)
                 response_text = tool_output # Capture error and treat as final response for this iteration
@@ -930,10 +937,10 @@ async def chat(chat_request: ChatRequest, request: Request):
                 response_text = "I couldn't finalize my response after several attempts. Please try rephrasing your request."
             logging.warning(f"Agent loop finished without explicit final answer for session {session_id}. Final response: '{response_text[:100]}'")
 
-    except ValidationError as e:
+    except ValidationError as e: # This except closes the outer try block (line ~790)
         logging.error(f"❌ Pydantic validation error in agent decision: {e}", exc_info=True)
         response_text = "I received an invalid instruction from my internal system. Please try again."
-    except Exception as e:
+    except Exception as e: # This except closes the outer try block (line ~790)
         logging.error(f"❌ Global error in /chat endpoint for session {session_id}: {e}", exc_info=True)
         response_text = "I'm experiencing a technical issue and cannot respond at the moment. Please try again later."
 
