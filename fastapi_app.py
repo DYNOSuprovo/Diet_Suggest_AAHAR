@@ -776,7 +776,8 @@ async def chat(chat_request: ChatRequest, request: Request):
             
             # Otherwise, execute the chosen tool
             tool_name = orchestrator_decision.tool_name
-            tool_input = orchestrator_decision.tool_input if tool_input is not None else {} # Ensure tool_input is a dict
+            # FIX: Assign orchestrator_decision.tool_input first, then default if it's None.
+            tool_input = orchestrator_decision.tool_input if orchestrator_decision.tool_input is not None else {}
             tool_output = "Error: Tool execution failed." # Default if tool fails
 
             try: 
