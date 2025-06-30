@@ -378,16 +378,20 @@ def extract_diet_goal(query: str) -> str:
 
 @lru_cache(maxsize=128)
 def extract_regional_preference(query: str) -> str:
-    """Extracts regional preference for Indian diet (e.g., South Indian, Punjabi)."""
+    """Extracts regional preference for Indian diet (e.g., South Indian, Punjabi, Bengali)."""
     q = query.lower()
-    match = re.search(
-        r"\b(?:south indian|north indian|west indian|east indian|bengali|punjabi|maharashtrian|gujarati|"
-        r"tamil|kannada|telugu|malayalam|kanyakumari|odisha|oriya|bhubaneswar|cuttack|angul)\b",
-        q
-    )
-    if match:
-        return " ".join(word.capitalize() for word in match.group(0).split())
-    return "Indian"
+    # Updated regex to include Kolkata and map it to a broader region
+    if "kolkata" in q or "bengali" in q:
+        return "Bengali" # Or "East Indian" if preferred as a broader category
+    if any(term in q for term in ["south indian", "tamil", "kannada", "telugu", "malayalam", "kanyakumari"]):
+        return "South Indian"
+    if any(term in q for term in ["north indian", "punjabi"]):
+        return "North Indian"
+    if any(term in q for term in ["west indian", "maharashtrian", "gujarati"]):
+        return "West Indian"
+    if any(term in q for term in ["east indian", "odisha", "oriya", "bhubaneswar", "cuttack", "angul"]):
+        return "East Indian"
+    return "Indian" # Default if no specific region is found
 
 @lru_cache(maxsize=128)
 def contains_table_request(query: str) -> bool:
@@ -498,22 +502,31 @@ Available Tools:
 4.  **`generate_diet_plan`**:
     * **Description**: Generate a new diet suggestion or detailed diet plan using RAG and Groq.
     * **Input**: `dietary_type: string` (e.g., "vegetarian", "non-vegetarian", "vegan", "any"), `goal: string` (e.g., "weight loss", "weight gain", "diet"), `region: string` (e.g., "South Indian", "Punjabi", "Indian"), `wants_table: boolean`. Default to "any", "diet", "Indian", false if not specified by user.
-    * **When to use**: For most diet-related queries that require generating a new plan or suggestion.
+    * **When to use**: For most diet-related queries that require generating a new plan or suggestion, especially those asking for "diet plan", "food suggestion", "meal ideas".
 5.  **`fetch_recipe`**:
     * **Description**: Fetch a simple recipe for a given food item.
     * **Input**: `recipe_name: string` (e.g., "Dal Makhani").
-    * **When to use**: If the user asks for a specific recipe.
+    * **When to use**: If the user explicitly asks for a "recipe for X", "how to make Y", or "ingredients for Z".
 6.  **`lookup_nutrition_facts`**:
     * **Description**: Look up basic nutrition facts for a given food item.
     * **Input**: `food_item: string` (e.g., "rice", "lentils").
-    * **When to use**: If the user asks for nutritional information about a food.
+    * **When to use**: If the user explicitly asks for "nutrition facts for X", "calories in Y", "protein in Z".
 
 **Agent's State:**
 You have access to the current `chat_history` and `current_user_query`.
 You also have an `agent_scratchpad` which contains past `Tool Output` to help you make subsequent decisions.
 
+Chat History:
+{chat_history}
+
+Current User Query: "{query}"
+
+Agent Scratchpad (Observations from previous tool executions):
+{agent_scratchpad}
+
 Think step-by-step. What is the user's ultimate goal? What is the next logical step to achieve that goal?
-If you've executed all tools necessary to answer the user's query and have gathered all relevant information in the `agent_scratchpad`, then formulate a concise, complete, and direct `final_answer` that synthesizes the `Tool Output` from the scratchpad to fully address the user's request. This is critical for multi-step queries where you combine information from different tools.
+If you've executed a tool that directly answers the user's query (like `handle_greeting`, `handle_identity`, `fetch_recipe`, or `lookup_nutrition_facts`), you MUST set `final_answer` to the `Tool Output` from the `agent_scratchpad` and stop.
+If you've gathered all necessary information for a `generate_diet_plan` request and the `Tool Output` from `generate_diet_plan` is the complete diet plan, then set `final_answer` to that output.
 Otherwise, select the `tool_name` and `tool_input` for your next action.
 
 Output (JSON adhering to AgentAction Pydantic model):
@@ -661,7 +674,7 @@ async def startup_event():
 
             try:
                 raw_dict = json.loads(json_str)
-                # Check for nested 'agent_action' key
+                # Check for nested 'agent_action' key (common if LLM adds wrapper)
                 if isinstance(raw_dict, dict) and "agent_action" in raw_dict:
                     parsed_output = parser.parse(json.dumps(raw_dict["agent_action"])) # Parse the inner dictionary
                 else:
@@ -882,7 +895,7 @@ async def chat(chat_request: ChatRequest, request: Request):
                         break # Diet generation is considered a terminal action for the agent loop
                     except Exception as e:
                         logging.error(f"❌ Merge error in generate_diet_plan tool: {e}", exc_info=True)
-                        tool_output = "Error during diet plan generation (merge step)."
+                        tool_output = "I encountered an issue generating a comprehensive diet plan."
                         response_text = tool_output
                         break # Treat as final response if merge fails
 
@@ -890,10 +903,14 @@ async def chat(chat_request: ChatRequest, request: Request):
                 elif tool_name == "fetch_recipe":
                     # This tool's output will now be added to scratchpad for potential synthesis.
                     tool_output = await tool_fetch_recipe(tool_input.get("recipe_name", "unknown"))
-
+                    response_text = tool_output # Direct answer, so set as final response
+                    break # Task complete
+                
                 elif tool_name == "lookup_nutrition_facts":
                     # This tool's output will now be added to scratchpad for potential synthesis.
                     tool_output = await tool_lookup_nutrition_facts(tool_input.get("food_item", "unknown"))
+                    response_text = tool_output # Direct answer, so set as final response
+                    break # Task complete
 
                 else:
                     tool_output = f"Error: Unknown tool '{tool_name}' requested by agent."
