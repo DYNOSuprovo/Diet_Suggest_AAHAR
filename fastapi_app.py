@@ -439,6 +439,8 @@ async def tool_fetch_recipe(recipe_name: str) -> str:
         return f"Recipe for {recipe_name}: Ingredients - Black lentils, kidney beans, butter, cream, tomatoes, ginger-garlic paste. Steps - Soak, boil, temper, simmer. Serve hot with naan or rice."
     elif "paneer tikka" in recipe_name.lower():
         return f"Recipe for {recipe_name}: Ingredients - Paneer, yogurt, ginger-garlic paste, spices, bell peppers, onions. Steps - Marinate, skewer, grill/bake."
+    elif "chicken tikka masala" in recipe_name.lower(): # Added specific placeholder
+        return f"Recipe for {recipe_name}: Ingredients - Chicken, yogurt, ginger-garlic paste, spices, tomatoes, cream. Steps - Marinate chicken, grill/bake, cook in a rich tomato-cream sauce. Serve with naan/rice."
     else:
         return f"Recipe for {recipe_name}: Detailed recipe unavailable, but typically involves [basic ingredients] and [basic cooking method]."
 
@@ -454,6 +456,8 @@ async def tool_lookup_nutrition_facts(food_item: str) -> str:
         return f"Nutrition facts for {food_item} (per 100g cooked): Calories: 130, Carbs: 28g, Protein: 2.7g, Fat: 0.3g."
     elif "lentils" in food_item.lower():
         return f"Nutrition facts for {food_item} (per 100g cooked): Calories: 116, Carbs: 20g, Protein: 9g, Fat: 0.4g. Rich in fiber."
+    elif "avocado" in food_item.lower(): # Added specific placeholder
+        return f"Nutrition facts for {food_item} (per 100g): Calories: 160, Fat: 14.7g (mostly healthy monounsaturated), Carbs: 8.5g, Protein: 2g."
     else:
         return f"Nutrition facts for {food_item}: Calories, carbs, protein, and fat vary. Generally healthy."
 
@@ -508,16 +512,8 @@ Available Tools:
 You have access to the current `chat_history` and `current_user_query`.
 You also have an `agent_scratchpad` which contains past `Tool Output` to help you make subsequent decisions.
 
-Chat History:
-{chat_history}
-
-Current User Query: "{query}"
-
-Agent Scratchpad (Observations from previous tool executions):
-{agent_scratchpad}
-
 Think step-by-step. What is the user's ultimate goal? What is the next logical step to achieve that goal?
-If you've gathered all necessary information and are ready to answer, set `final_answer`.
+If you've executed all tools necessary to answer the user's query and have gathered all relevant information in the `agent_scratchpad`, then formulate a concise, complete, and direct `final_answer` that synthesizes the `Tool Output` from the scratchpad to fully address the user's request. This is critical for multi-step queries where you combine information from different tools.
 Otherwise, select the `tool_name` and `tool_input` for your next action.
 
 Output (JSON adhering to AgentAction Pydantic model):
@@ -780,7 +776,7 @@ async def chat(chat_request: ChatRequest, request: Request):
             
             # Otherwise, execute the chosen tool
             tool_name = orchestrator_decision.tool_name
-            tool_input = orchestrator_decision.tool_input if orchestrator_decision.tool_input is not None else {}
+            tool_input = orchestrator_decision.tool_input if tool_input is not None else {} # Ensure tool_input is a dict
             tool_output = "Error: Tool execution failed." # Default if tool fails
 
             try: 
@@ -891,16 +887,12 @@ async def chat(chat_request: ChatRequest, request: Request):
 
 
                 elif tool_name == "fetch_recipe":
-                    # Removed 'break' here. This tool's output will now be added to scratchpad,
-                    # and the agent can decide next if other tools are needed.
+                    # This tool's output will now be added to scratchpad for potential synthesis.
                     tool_output = await tool_fetch_recipe(tool_input.get("recipe_name", "unknown"))
-                    # The response_text is set below, after the agent loop, by the orchestrator's final_answer
-                    # We just capture the tool_output here for the scratchpad.
 
                 elif tool_name == "lookup_nutrition_facts":
-                    # Removed 'break' here. Similar to fetch_recipe, its output is for scratchpad.
+                    # This tool's output will now be added to scratchpad for potential synthesis.
                     tool_output = await tool_lookup_nutrition_facts(tool_input.get("food_item", "unknown"))
-                    # The response_text is set below, after the agent loop, by the orchestrator's final_answer
 
                 else:
                     tool_output = f"Error: Unknown tool '{tool_name}' requested by agent."
@@ -922,6 +914,7 @@ async def chat(chat_request: ChatRequest, request: Request):
             })
 
         else: # This 'else' block executes if the loop completes without a 'break' (i.e., no final_answer)
+            # This means max_agent_iterations was hit without a conclusive answer.
             if response_text == "I'm sorry, I encountered an internal issue and cannot respond right now. Please try again.":
                 response_text = "I couldn't finalize my response after several attempts. Please try rephrasing your request."
             logging.warning(f"Agent loop finished without explicit final answer for session {session_id}. Final response: '{response_text[:100]}'")
