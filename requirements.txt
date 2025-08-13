@@ -1,4 +1,4 @@
-streamlit
+fuzzywuzzy
 openai
 python-dotenv
 langchain
