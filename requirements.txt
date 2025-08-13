@@ -16,6 +16,7 @@ google-generativeai
 gunicorn
 itsdangerous
 gspread
+python-Levenshtein
 oauth2client
 psycopg2-binary
 gdown
