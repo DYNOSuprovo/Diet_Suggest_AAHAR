@@ -911,12 +911,12 @@ async def startup_event():
             raise EnvironmentError("GEMINI_API_KEY is not set.")
 
         llm_gemini = GoogleGenerativeAI(
-            model="gemini-2.0-flash",
+            model="gemini-1.5-flash-latest",
             google_api_key=GEMINI_API_KEY,
             temperature=0.5
         )
         llm_orchestrator = GoogleGenerativeAI(
-            model="gemini-2.0-flash",
+            model="gemini-1.5-flash-latest",
             google_api_key=GEMINI_API_KEY,
             temperature=0.1
         )
