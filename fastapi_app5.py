@@ -911,12 +911,12 @@ async def startup_event():
             raise EnvironmentError("GEMINI_API_KEY is not set.")
 
         llm_gemini = GoogleGenerativeAI(
-            model="gemini-1.5-flash-latest",
+            model="gemini-2.5-flash-live",
             google_api_key=GEMINI_API_KEY,
             temperature=0.5
         )
         llm_orchestrator = GoogleGenerativeAI(
-            model="gemini-1.5-flash-latest",
+            model="gemini-2.5-flash-live",
             google_api_key=GEMINI_API_KEY,
             temperature=0.1
         )
@@ -1587,3 +1587,4 @@ if __name__ == "__main__":
     logging.info("🚀 Starting Enhanced FastAPI application with Nutrition Database and Meal Analyzer...")
     # The test script uses port 10000, so we default to it here.
     uvicorn.run("fastapi_app5:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)), reload=True)
+
