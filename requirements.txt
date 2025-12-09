@@ -1,3 +1,4 @@
+langchain-groq
 fuzzywuzzy
 openai
 python-dotenv
