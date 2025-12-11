@@ -2213,9 +2213,21 @@ def extract_diet_preference(query: str) -> str:
 def extract_diet_goal(query: str) -> str:
     """Extracts diet goal from the query."""
     q = query.lower()
-    if any(p in q for p in ["lose weight", "loss weight", "cut weight", "reduce weight", "lose fat", "cut fat"]):
+    # Weight loss patterns (expanded for complex sentences)
+    if any(p in q for p in ["lose weight", "weight loss", "cut weight", "reduce weight", 
+                            "lose fat", "cut fat", "stay slim", "get slim", "be slim",
+                            "maintain weight", "low calorie", "low-calorie", "calorie deficit",
+                            "calorie-deficit", "weight reduce", "fat loss", "slimming", "lighter",
+                            " slim", "slim ", "for slim", "slim down", "belly fat", "lose belly",
+                            "shredding", "reducing body fat", "body fat", "not-too-heavy",
+                            "light meal", "light dinner", "light lunch", "light breakfast"]):
         return "weight loss"
-    if "gain weight" in q or "weight gain" in q or "muscle gain" in q:
+    # Weight gain patterns (expanded for complex sentences)
+    if any(p in q for p in ["gain weight", "weight gain", "muscle gain", "bulk up",
+                            "put on weight", "increase weight", "build mass", "bulking",
+                            "gain muscle", "build muscle", "muscle building", "for muscle",
+                            " bulk", "bulk ", "clean bulk", "clean bulking",
+                            "muscle mass", "strength building", "recovery", "gym recovery"]):
         return "weight gain"
     if "loss" in q:
         return "weight loss"
@@ -2227,16 +2239,49 @@ def extract_diet_goal(query: str) -> str:
 def extract_regional_preference(query: str) -> str:
     """Extracts regional preference for Indian diet."""
     q = query.lower()
-    if "kolkata" in q or "bengali" in q:
+    
+    # Bihar / East India
+    if any(term in q for term in ["patna", "bihar", "bihari", "gaya", "muzaffarpur", "bhagalpur"]):
+        return "Bihari"
+    
+    # Uttar Pradesh / Awadhi
+    if any(term in q for term in ["lucknow", "awadhi", "varanasi", "allahabad", "kanpur", "agra", "uttar pradesh", "up"]):
+        return "Awadhi"
+    
+    # Bengali / Kolkata
+    if any(term in q for term in ["kolkata", "bengali", "west bengal", "darjeeling", "howrah"]):
         return "Bengali"
-    if any(term in q for term in ["south indian", "tamil", "kannada", "telugu", "malayalam", "kanyakumari"]):
+    
+    # South Indian cities and regions
+    if any(term in q for term in ["south indian", "tamil", "kannada", "telugu", "malayalam", 
+                                   "chennai", "bangalore", "bengaluru", "hyderabad", "kerala", 
+                                   "mysore", "coimbatore", "kochi", "thiruvananthapuram", "madurai"]):
         return "South Indian"
-    if any(term in q for term in ["north indian", "punjabi"]):
+    
+    # North Indian / Punjabi
+    if any(term in q for term in ["north indian", "punjabi", "delhi", "amritsar", "chandigarh", 
+                                   "jaipur", "rajasthan", "rajasthani", "haryana"]):
         return "North Indian"
-    if any(term in q for term in ["west indian", "maharashtrian", "gujarati"]):
+    
+    # West Indian
+    if any(term in q for term in ["west indian", "maharashtrian", "gujarati", "mumbai", "pune", 
+                                   "ahmedabad", "surat", "maharashtra", "gujarat", "goa", "goan"]):
         return "West Indian"
-    if any(term in q for term in ["east indian", "odisha", "oriya", "bhubaneswar", "cuttack", "angul"]):
+    
+    # East Indian / Odisha
+    if any(term in q for term in ["east indian", "odisha", "oriya", "bhubaneswar", "cuttack", 
+                                   "angul", "puri", "odia"]):
         return "East Indian"
+    
+    # Kashmiri
+    if any(term in q for term in ["kashmir", "kashmiri", "srinagar", "jammu"]):
+        return "Kashmiri"
+    
+    # Northeast
+    if any(term in q for term in ["assam", "assamese", "guwahati", "northeast", "manipur", 
+                                   "meghalaya", "nagaland", "sikkim", "arunachal", "tripura", "mizoram"]):
+        return "Northeast Indian"
+    
     return "Indian"
 
 @lru_cache(maxsize=128)
@@ -3197,8 +3242,3 @@ if __name__ == "__main__":
     logging.info("🚀 Starting Enhanced FastAPI application with Nutrition Database and Meal Analyzer...")
     # The test script uses port 10000, so we default to it here.
     uvicorn.run("fastapi_app5:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)), reload=False)
-
-
-
-
-
