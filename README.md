@@ -1,6 +1,6 @@
-# 🥗 AI Diet Suggestion System (Indian Edition)
+# 🥗 AI Diet Suggestion System (Indian Edition) - AAHAR
 
-> Personalized Indian dietary advice using LangChain, Gemini, Groq, and ChromaDB
+> **AAHAR** (Advanced Assistant for Healthy Alimentary Recommendations) is a highly sophisticated, context-aware AI agent designed to navigate the complex landscape of Indian dietary habits. It leverages an Agentic RAG pipeline to provide culturally relevant, nutritionally grounded, and environmentally aware food advice.
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
 ![LangChain](https://img.shields.io/badge/LangChain-Enabled-success?logo=OpenAI)
@@ -14,161 +14,151 @@
 
 ## 📸 Project Overview
 
-**AI Diet Suggestion System** intelligently provides regionally-aware and dietary-type-specific Indian food suggestions using a RAG (Retrieval-Augmented Generation) pipeline, conversational memory, and fallback LLM integrations via Groq.
+**AAHAR** intelligently provides regionally-aware and dietary-type-specific Indian food suggestions using a RAG (Retrieval-Augmented Generation) pipeline, conversational memory, and fallback LLM integrations via Groq.
 
 It understands queries like:
-
 > *"Suggest a South Indian vegetarian dinner plan for diabetes."*
-> And returns contextually aware meal advice grounded in nutritional logic and culturally suitable food habits.
+> *"What is the nutritional difference between Dal Makhani and Mixed Dal?"*
+> *"Analyze my meal: 2 Rotis, 1 cup of Chana Masala, and a bowl of curd."*
 
 ---
 
-## 🧠 Architecture Workflow
+## 📸 Architectural Workflow
 
-![Architecture Flowchart](A_flowchart_diagram_in_the_image_illustrates_a_die.png)
+```mermaid
+graph TD
+    User([User Query]) --> UI[FastAPI / Streamlit UI]
+    UI --> Orchestrator{Agentic Orchestrator<br/>Gemini 2.5 Flash}
+    
+    subgraph Tools [Knowledge & Logic Tools]
+        Orchestrator --> RAG[RAG Engine<br/>ChromaDB + Gemini Embeddings]
+        Orchestrator --> NutriDB[Nutrition Engine<br/>Fuzzy Matching + JSON Database]
+        Orchestrator --> Weather[Weather API<br/>OpenWeather Integration]
+        Orchestrator --> Recipes[Recipe Fetcher<br/>Indian Cuisine Logic]
+    end
+    
+    subgraph Processing [Inference & Synthesis]
+        RAG --> Synthesis
+        NutriDB --> Synthesis
+        Weather --> Synthesis
+        Orchestrator --> BackupLLMs[Backup LLMs via Groq<br/>Llama 3 / Mixtral / Gemma 2]
+        BackupLLMs --> Synthesis[Synthesis & Merge Logic]
+    end
+    
+    Synthesis --> Output([Personalized Diet Plan / Analysis])
+    Output --> User
+```
 
 ---
 
-### 🯩 Workflow Explanation
+## 🧠 Core Intelligence Features
 
-1. **User Query** — Input via chatbot or frontend (e.g., "high-protein vegetarian diet for muscle gain").
-2. **Session Memory** — Previous chats are fetched using `ChatMessageHistory` for continuity.
-3. **Context Retrieval** — The system queries a ChromaDB vectorstore for relevant dietary documents.
-4. **Prompt Construction** — Gemini receives a dynamic prompt with context, chat history, and user metadata (diet type, region, goal).
-5. **LLM Response** — Gemini generates a food plan or suggestion. If it's too generic or an error, backup suggestions are fetched from:
+### 1. Agentic Orchestration Loop
+Unlike standard chatbots, AAHAR uses a self-correcting **6-iteration agent loop**. The orchestrator (Gemini 2.5 Flash) analyzes the query, selects the appropriate tool (Weather, RAG, Nutrition Fact, or Recipe), observes the output in a scratchpad, and iteratively refines its response until it meets the user's specific goals.
 
-   * Groq’s **LLaMA3**, **Mixtral**, and **Gemma** models in parallel.
-6. **Merge Logic** — Responses are merged using smart prompt templates for a final, coherent answer (text or markdown table).
-7. **Output** — Final result is streamed/displayed to user.
+### 2. Multi-Tier Nutrition Search Engine
+The system employs a sophisticated search strategy for its 1.3MB Indian food database:
+*   **Tier 1 (Exact):** Direct mapping for common dishes.
+*   **Tier 2 (Regex/Substring):** Identifies variations within category names.
+*   **Tier 3 (Fuzzy Logic):** Powered by `fuzzywuzzy` with a token-set ratio scorer (>85 threshold) to handle typos like "Paneer Tika" vs "Paneer Tikka."
 
----
+### 3. Integrated Meal Analyzer
+The `/analyze-meal` engine provides professional-grade nutritional critiques:
+*   **Numeric Aggregation:** Calculates exact totals for Calories, Protein, Carbs, Sugar, Fats, Fiber, and Sodium from a list of consumed dishes.
+*   **AI Critique:** Gemini analyzes the aggregated totals to provide a 3-5 sentence professional assessment of the meal's balance, caloric density, and health suitability.
 
-## 📂 File Overview
-
-| File                  | Role                                                                         |
-| --------------------- | ---------------------------------------------------------------------------- |
-| `llm_chains.py`       | Core logic for LangChain pipeline: RAG + Gemini + Prompt Templates + History |
-| `groq_integration.py` | Multi-threaded Groq API call handler using `requests`                        |
-| `chroma_db_loader.py` | (Optional) Script to ingest and persist documents into Chroma vectorstore    |
-| `fastapi_app.py`      | REST API backend to expose endpoints for frontend (if applicable)            |
-| `requirements.txt`    | Python dependencies                                                          |
+### 4. Hyper-Local Cultural Awareness
+The system's metadata extraction engine is tuned for the Indian subcontinent:
+*   **Regions:** Maps cities to specific cuisines (e.g., Patna -> **Bihari**, Lucknow -> **Awadhi**, Kolkata -> **Bengali**).
+*   **Goals:** Understands the difference between "bulking," "clean bulking," "shredding," and "belly fat reduction."
+*   **Weather Awareness:** Automatically fetches real-time data to suggest **cooling foods** in heatwaves or **warming meals** during winters.
 
 ---
 
 ## 🛠 Tech Stack
 
-| Component  | Tool                                              |
-| ---------- | ------------------------------------------------- |
-| Language   | Python 3.11                                       |
-| Framework  | LangChain                                         |
-| LLM APIs   | Google Gemini Pro, Groq (LLaMA3, Mixtral, Gemma2) |
-| Vector DB  | ChromaDB                                          |
-| Backend    | FastAPI (optional)                                |
-| Deployment | Local / Render / Hugging Face Spaces              |
+| Component         | Tool                                              |
+| ----------------- | ------------------------------------------------- |
+| **Brain**         | Google Gemini 2.5 Flash (Live)                    |
+| **Inference Path**| LangChain Agentic Orchestrator                    |
+| **Fallback LLMs** | Groq (Llama 3 70B, Mixtral 8x7B, Gemma 2 9B)      |
+| **Vector DB**     | ChromaDB with `text-embedding-004` (Gemini)       |
+| **Web Server**    | FastAPI with Uvicorn                              |
+| **Logic Props**   | Pandas, FuzzyWuzzy, OpenWeather API               |
 
 ---
 
-## 🚀 User Guide
+## 📂 Project Structure
+
+| File                  | Role                                                                         |
+| --------------------- | ---------------------------------------------------------------------------- |
+| `fastapi_app5.py`     | The "Brain" - Contains the Agentic Orchestrator, tool definitions, and API logic. |
+| `llm_chains.py`       | Core LangChain logic: RAG pipelines, Prompt Templates, and History management. |
+| `nutrition_data.json` | 1.3MB + Database of detailed nutritional profiles for Indian dishes.            |
+| `groq_integration.py` | Multi-threaded handler for fallback LLMs (Llama, Mixtral, Gemma).             |
+| `query_analysis.py`   | NLP module for extracting dietary preferences, regions, and user sentiment.    |
+| `weather.py`          | Real-time environment integration via OpenWeather API.                        |
+
+---
+
+## � Output Types & Features
+
+*   ✅ **Plain-text Answer:** Direct, concise nutritional advice.
+*   ✅ **Merged Responses:** Intelligent blending of Gemini and Groq (fallback) data.
+*   ✅ **Tabular Format:** Markdown tables for meal plans (Meal, Food, Calories, Nutrients).
+*   ✅ **Meal Logs:** Aggregated nutritional summaries for multiple dishes.
+*   ✅ **Sentiment Detection:** Adjusts tone based on user positivity or frustration.
+
+---
+
+## 🚀 Deployment & Usage
 
 ### 🔧 Setup
-
 ```bash
-# Clone repository
+# Clone and navigate
 git clone https://github.com/DYNOSuprovo/Diet_Suggest_AAHAR.git
 cd Diet_Suggest_AAHAR
-
-# Setup virtual environment
-python -m venv venv
-source venv/bin/activate  # Or venv\Scripts\activate on Windows
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 
----
-
-### 🔑 Required API Keys
-
-Create a `.env` file or set environment variables:
-
-```env
-GOOGLE_API_KEY=your_gemini_api_key
-GROQ_API_KEY=your_groq_api_key
-```
-
----
-
-### 🥪 Run Backend (if using FastAPI)
-
+### 🔑 Environment Configuration
+Create a `.env` file or export variables:
 ```bash
-uvicorn fastapi_app:app --reload --host 0.0.0.0 --port 8000
+export GEMINI_API_KEY="your_key"
+export GROQ_API_KEY="your_key"
+export OPENWEATHER_API_KEY="your_key"
 ```
 
-Then visit: `http://localhost:8000/docs` for Swagger API.
+### 🥪 Running the App
+```bash
+# Start the Backend
+uvicorn fastapi_app5:app --host 0.0.0.0 --port 10000
 
----
-
-### 🧪 Local Example (No FastAPI)
-
-```python
-from llm_chains import setup_qa_chain, setup_conversational_qa_chain
-from groq_integration import cached_groq_answers
-
-# Setup Gemini + Chroma + prompt
-qa_chain = setup_qa_chain(llm_gemini, db, define_rag_prompt_template())
-conversation = setup_conversational_qa_chain(qa_chain)
-
-response = conversation.invoke({
-    "query": "Suggest a fiber-rich Indian dinner for constipation",
-    "dietary_type": "vegetarian",
-    "goal": "digestive health",
-    "region": "North India"
-}, config={"configurable": {"session_id": "user-123"}})
-
-print(response)
+# Start the Streamlit UI (Optional)
+streamlit run streamlit_ui.py
 ```
 
 ---
 
-## 📊 Output Types
-
-* ✅ Plain-text RAG-based answer
-* ✅ Merged answer using Groq if needed
-* ✅ Markdown table (if selected)
-* ✅ Culturally tuned to Indian meals (e.g., poha, khichdi, ragi)
-
----
-
-## 🧠 LLM Logic
-
-* **Primary LLM**: Gemini (context-aware)
-* **Backup**: Groq (LLaMA3, Mixtral, Gemma2)
-* **Merge Templates**:
-
-  * Default: for clean answers
-  * Table Mode: for markdown diet plan tables
+## 🚧 Future Road Map
+*   � **Mobile App:** Flutter-based frontend for pocket-access.
+*   📊 **PDF Exports:** Generating professional PDF diet charts for users.
+*   🔔 **Reminders:** Native notifications for meal times and hydration.
+*   🤖 **Bot Integration:** Telegram and WhatsApp integration for low-latency queries.
+*   📈 **Vision Support:** Analyzing food images to estimate portion sizes.
 
 ---
 
-## 🚧 Future Improvements
-
-* 📱 Flutter-based frontend (UI for querying)
-* 📄 PDF export of diet plans
-* 📬 WhatsApp/Telegram bot integration
-* 🗂️ Caching with Redis for response optimization
-* 📟 Food item-level calorie estimates
-
----
-
-## 🙏 Acknowledgements
-
-* [LangChain](https://github.com/langchain-ai/langchain)
-* [Gemini API](https://ai.google.dev/)
-* [Groq API](https://console.groq.com/)
-* [Chroma](https://www.trychroma.com/)
+## �🙏 Acknowledgements
+*   Created with ❤️ by **Suprovo** (Lord d'Artagnan).
+*   [LangChain](https://github.com/langchain-ai/langchain) for the orchestration framework.
+*   [Google AI](https://ai.google.dev/) for the Gemini 2.5 Flash capabilities.
+*   [Groq API](https://console.groq.com/) for ultra-fast fallback inference.
+*   [OpenWeather](https://openweathermap.org/) for environmental context.
 
 ---
 
 ## 📜 License
-
-MIT License — Fork it, use it, contribute!
+MIT License — Fork it, improve it, contribute!
