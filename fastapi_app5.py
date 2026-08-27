@@ -2691,23 +2691,72 @@ async def chat(chat_request: ChatRequest, request: Request):
     gender = user_profile.get("gender")
     name = user_profile.get("name")
 
-    # Handle direct identity / name questions cleanly
-    query_lower = user_query.lower()
+    query_lower = user_query.lower().strip()
+
+    # 1. Direct Name / Identity Query
     is_name_query = any(k in query_lower for k in ["what's my name", "whats my name", "what is my name", "who am i", "my name"])
     if is_name_query:
-        if name:
-            ans = f"Your saved name is **{name}**."
-        else:
-            ans = "I don't have your name saved yet! You can set your name in your Profile page."
+        ans = f"Your saved name is **{name}**." if name else "I don't have your name saved yet! You can set your name in your Profile page."
         get_session_history(session_id).add_user_message(user_query)
         get_session_history(session_id).add_ai_message(ans)
         return {"answer": ans, "session_id": session_id}
 
-    # Handle BMI Evaluation / Judgment queries
-    is_judge_bmi_query = any(k in query_lower for k in [
+    # 2. Direct Weight Query
+    is_weight_query = any(k in query_lower for k in ["what's my weight", "whats my weight", "what is my weight", "how much do i weigh", "my weight"])
+    if is_weight_query:
+        ans = f"Your saved weight is **{weight} kg**." if weight and float(weight) > 0 else "I don't have your weight saved yet! You can update your weight in your Profile page."
+        get_session_history(session_id).add_user_message(user_query)
+        get_session_history(session_id).add_ai_message(ans)
+        return {"answer": ans, "session_id": session_id}
+
+    # 3. Direct Height Query
+    is_height_query = any(k in query_lower for k in ["what's my height", "whats my height", "what is my height", "how tall am i", "my height"])
+    if is_height_query:
+        ans = f"Your saved height is **{int(height)} cm**." if height and float(height) > 0 else "I don't have your height saved yet! You can update your height in your Profile page."
+        get_session_history(session_id).add_user_message(user_query)
+        get_session_history(session_id).add_ai_message(ans)
+        return {"answer": ans, "session_id": session_id}
+
+    # 4. Direct Age Query
+    is_age_query = any(k in query_lower for k in ["what's my age", "whats my age", "what is my age", "how old am i", "my age"])
+    if is_age_query:
+        ans = f"Your saved age is **{age} years old**." if age and int(age) > 0 else "I don't have your age saved yet! You can update your age in your Profile page."
+        get_session_history(session_id).add_user_message(user_query)
+        get_session_history(session_id).add_ai_message(ans)
+        return {"answer": ans, "session_id": session_id}
+
+    # 5. Full Profile / Stats Query
+    is_profile_query = any(k in query_lower for k in ["whats my profile", "what's my profile", "show my profile", "my profile", "my stats", "my details", "my info", "show my stats"])
+    if is_profile_query:
+        if weight and height and float(weight) > 0 and float(height) > 0:
+            w = float(weight)
+            h_m = float(height) / 100.0 if float(height) > 3 else float(height)
+            bmi_val = round(w / (h_m * h_m), 1)
+            cat = "Underweight" if bmi_val < 18.5 else ("Normal weight" if bmi_val < 25.0 else ("Overweight" if bmi_val < 30.0 else "Obese"))
+            bmi_str = f"{bmi_val} kg/m² ({cat})"
+        else:
+            bmi_str = "Not calculated"
+        
+        ans = (
+            f"Here is your saved profile summary:\n\n"
+            f"• **Name:** {name or 'Not set'}\n"
+            f"• **Weight:** {f'{weight} kg' if weight else 'Not set'}\n"
+            f"• **Height:** {f'{int(height)} cm' if height else 'Not set'}\n"
+            f"• **Age:** {f'{age} years' if age else 'Not set'}\n"
+            f"• **Gender:** {gender or 'Not set'}\n"
+            f"• **BMI:** {bmi_str}"
+        )
+        get_session_history(session_id).add_user_message(user_query)
+        get_session_history(session_id).add_ai_message(ans)
+        return {"answer": ans, "session_id": session_id}
+
+    # 6. Weight Status / Underweight / Overweight Judgment Queries
+    is_underweight_query = any(k in query_lower for k in ["am i underweight", "am i under weight", "am i skinny"])
+    is_overweight_query = any(k in query_lower for k in ["am i overweight", "am i over weight", "am i fat"])
+    is_judge_bmi_query = is_underweight_query or is_overweight_query or any(k in query_lower for k in [
         "judge my bmi", "evaluate my bmi", "rate my bmi", "is my bmi good", 
         "is my bmi bad", "is my bmi okay", "is my bmi healthy", "how is my bmi", 
-        "what does my bmi mean", "analyze my bmi"
+        "what does my bmi mean", "analyze my bmi", "is my weight normal", "is my weight healthy"
     ])
 
     if is_judge_bmi_query and weight and height and float(weight) > 0 and float(height) > 0:
@@ -2715,6 +2764,28 @@ async def chat(chat_request: ChatRequest, request: Request):
         h_m = float(height) / 100.0 if float(height) > 3 else float(height)
         bmi_val = round(w / (h_m * h_m), 1)
 
+        if is_underweight_query:
+            if bmi_val < 18.5:
+                ans = f"Yes, based on your height ({int(height)} cm) and weight ({weight} kg), your BMI is **{bmi_val} kg/m²**, which is classified as **Underweight** (below 18.5). Focus on healthy calorie-dense meals to build weight safely."
+            else:
+                cat = "Normal weight" if bmi_val < 25.0 else ("Overweight" if bmi_val < 30.0 else "Obese")
+                ans = f"No, you are **not underweight**. Based on your height ({int(height)} cm) and weight ({weight} kg), your BMI is **{bmi_val} kg/m²**, which falls into the **{cat}** category. (Healthy weight range for {int(height)} cm is {round(18.5*h_m*h_m, 1)} kg – {round(24.9*h_m*h_m, 1)} kg)."
+            get_session_history(session_id).add_user_message(user_query)
+            get_session_history(session_id).add_ai_message(ans)
+            return {"answer": ans, "session_id": session_id}
+
+        if is_overweight_query:
+            if bmi_val >= 25.0:
+                cat = "Overweight" if bmi_val < 30.0 else "Obese"
+                diff = round(w - (24.9 * h_m * h_m), 1)
+                ans = f"Yes, based on your height ({int(height)} cm) and weight ({weight} kg), your BMI is **{bmi_val} kg/m²**, which is in the **{cat}** category. You are approximately **{diff} kg above the healthy upper limit** ({round(24.9*h_m*h_m, 1)} kg)."
+            else:
+                ans = f"No, you are **not overweight**. Based on your height ({int(height)} cm) and weight ({weight} kg), your BMI is **{bmi_val} kg/m²**, which is in the **{'Normal weight' if bmi_val >= 18.5 else 'Underweight'}** category."
+            get_session_history(session_id).add_user_message(user_query)
+            get_session_history(session_id).add_ai_message(ans)
+            return {"answer": ans, "session_id": session_id}
+
+        # General BMI judgment response
         if bmi_val < 18.5:
             cat = "Underweight"
             verdict = "Your BMI is below the healthy range (< 18.5). Gaining weight safely through a caloric surplus with protein and complex carbs is recommended."
@@ -2732,7 +2803,6 @@ async def chat(chat_request: ChatRequest, request: Request):
 
         min_w = round(18.5 * h_m * h_m, 1)
         max_w = round(24.9 * h_m * h_m, 1)
-
         user_name_str = f" **{name}**" if name else ""
         ans = (
             f"Here is your personalized BMI evaluation{user_name_str}:\n\n"
@@ -2747,7 +2817,7 @@ async def chat(chat_request: ChatRequest, request: Request):
         get_session_history(session_id).add_ai_message(ans)
         return {"answer": ans, "session_id": session_id}
 
-    # Handle direct BMI calculation/score check requests cleanly
+    # 7. Handle direct BMI calculation/score check requests cleanly
     is_advice_query = any(k in query_lower for k in ["how to", "how can", "way to", "tips", "should i", "why", "increase", "decrease", "lower", "reduce", "gain", "lose", "change", "improve"])
     is_bmi_calc_request = (
         not is_advice_query and (
