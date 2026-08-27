@@ -2703,6 +2703,50 @@ async def chat(chat_request: ChatRequest, request: Request):
         get_session_history(session_id).add_ai_message(ans)
         return {"answer": ans, "session_id": session_id}
 
+    # Handle BMI Evaluation / Judgment queries
+    is_judge_bmi_query = any(k in query_lower for k in [
+        "judge my bmi", "evaluate my bmi", "rate my bmi", "is my bmi good", 
+        "is my bmi bad", "is my bmi okay", "is my bmi healthy", "how is my bmi", 
+        "what does my bmi mean", "analyze my bmi"
+    ])
+
+    if is_judge_bmi_query and weight and height and float(weight) > 0 and float(height) > 0:
+        w = float(weight)
+        h_m = float(height) / 100.0 if float(height) > 3 else float(height)
+        bmi_val = round(w / (h_m * h_m), 1)
+
+        if bmi_val < 18.5:
+            cat = "Underweight"
+            verdict = "Your BMI is below the healthy range (< 18.5). Gaining weight safely through a caloric surplus with protein and complex carbs is recommended."
+        elif bmi_val < 25.0:
+            cat = "Normal / Healthy Weight"
+            verdict = "Great news! Your BMI falls within the healthy ideal range (18.5 – 24.9). Focus on maintaining balanced nutrition and an active lifestyle."
+        elif bmi_val < 30.0:
+            cat = "Overweight"
+            diff = round(w - (24.9 * h_m * h_m), 1)
+            verdict = f"Your BMI of **{bmi_val}** is in the Overweight category (25.0 – 29.9). You are approximately **{diff} kg above the healthy upper limit** for your height. A modest calorie deficit with high-fiber, high-protein Indian meals will help bring your BMI into the normal range."
+        else:
+            cat = "Obese"
+            diff = round(w - (24.9 * h_m * h_m), 1)
+            verdict = f"Your BMI falls into the Obese classification (≥ 30.0). Reducing weight by ~{diff} kg through structured calorie control and active lifestyle is recommended."
+
+        min_w = round(18.5 * h_m * h_m, 1)
+        max_w = round(24.9 * h_m * h_m, 1)
+
+        user_name_str = f" **{name}**" if name else ""
+        ans = (
+            f"Here is your personalized BMI evaluation{user_name_str}:\n\n"
+            f"• **Current BMI:** **{bmi_val} kg/m²** ({cat})\n"
+            f"• **Height:** {int(height)} cm | **Weight:** {weight} kg\n"
+            f"• **Healthy Target Weight Range:** {min_w} kg – {max_w} kg\n\n"
+            f"📊 **Assessment & Guidance:**\n"
+            f"{verdict}\n\n"
+            f"Let me know if you would like a personalized diet plan to reach your target weight!"
+        )
+        get_session_history(session_id).add_user_message(user_query)
+        get_session_history(session_id).add_ai_message(ans)
+        return {"answer": ans, "session_id": session_id}
+
     # Handle direct BMI calculation/score check requests cleanly
     is_advice_query = any(k in query_lower for k in ["how to", "how can", "way to", "tips", "should i", "why", "increase", "decrease", "lower", "reduce", "gain", "lose", "change", "improve"])
     is_bmi_calc_request = (
