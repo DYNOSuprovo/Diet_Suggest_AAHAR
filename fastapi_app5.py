@@ -1977,9 +1977,9 @@ def cached_groq_answers(query: str, groq_api_key: str, dietary_type: str, goal: 
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {groq_api_key}", "Content-Type": "application/json"}
             groq_model_map = {
-                "llama": "llama3-70b-8192",
-                "gemma": "gemma2-9b-it",
-                "mixtral": "mixtral-8x7b-32768"
+                "llama": "qwen/qwen3.8-27b",
+                "gemma": "qwen/qwen3.8-27b",
+                "mixtral": "qwen/qwen3.8-27b"
             }
             actual_model_name = groq_model_map.get(model_name.lower(), model_name)
 
@@ -2560,12 +2560,12 @@ async def startup_event():
              raise EnvironmentError("GROQ_API_KEY is not set.")
 
         llm_gemini = ChatGroq(
-            model="llama-3.3-70b-versatile",
+            model="qwen/qwen3.8-27b",
             api_key=GROQ_API_KEY,
             temperature=0.5
         )
         llm_orchestrator = ChatGroq(
-            model="llama-3.3-70b-versatile",
+            model="qwen/qwen3.8-27b",
             api_key=GROQ_API_KEY,
             temperature=0.1
         )
