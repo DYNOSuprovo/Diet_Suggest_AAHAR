@@ -2657,6 +2657,7 @@ async def startup_event():
 class ChatRequest(BaseModel):
     query: str
     session_id: Optional[str] = Field(default=None, description="Optional session ID")
+    user_profile: Optional[Dict[str, Any]] = Field(default=None, description="Optional user physical profile parameters")
 
 # --- NEW: Models for Meal Analyzer ---
 class MealAnalysisRequest(BaseModel):
@@ -2676,16 +2677,70 @@ async def chat(chat_request: ChatRequest, request: Request):
     """Enhanced chat endpoint with nutrition database integration."""
     user_query = chat_request.query
     client_session_id = chat_request.session_id
+    user_profile = chat_request.user_profile or {}
 
     session_id = client_session_id or request.session.get("session_id") or f"session_{os.urandom(8).hex()}"
     request.session["session_id"] = session_id
 
-    logging.info(f"📩 Query: '{user_query}' | Session: {session_id}")
+    logging.info(f"📩 Query: '{user_query}' | Session: {session_id} | Profile: {user_profile}")
+
+    # Handle direct BMI calculation queries cleanly
+    query_lower = user_query.lower()
+    is_bmi_query = any(k in query_lower for k in ["bmi", "body mass index", "my bmi", "calculate my bmi", "whats my bmi", "what is my bmi", "what's my bmi"])
+
+    weight = user_profile.get("weight")
+    height = user_profile.get("height")
+    age = user_profile.get("age")
+    gender = user_profile.get("gender")
+    name = user_profile.get("name")
+
+    if is_bmi_query and weight and height and float(weight) > 0 and float(height) > 0:
+        w = float(weight)
+        h_m = float(height) / 100.0 if float(height) > 3 else float(height)
+        bmi_val = round(w / (h_m * h_m), 1)
+
+        if bmi_val < 18.5:
+            cat = "Underweight"
+        elif bmi_val < 25.0:
+            cat = "Normal weight"
+        elif bmi_val < 30.0:
+            cat = "Overweight"
+        else:
+            cat = "Obese"
+
+        min_w = round(18.5 * h_m * h_m, 1)
+        max_w = round(24.9 * h_m * h_m, 1)
+
+        user_name_str = f" **{name}**" if name else ""
+        ans = (
+            f"Here is your BMI breakdown{user_name_str}:\n\n"
+            f"• **Height:** {int(height)} cm\n"
+            f"• **Weight:** {weight} kg\n"
+            f"• **BMI:** **{bmi_val} kg/m²** ({cat})\n"
+            f"• **Healthy Weight Range for {int(height)} cm:** {min_w} kg – {max_w} kg\n\n"
+            f"Let me know if you would like personalized meal suggestions or calorie advice tailored for your goal!"
+        )
+        get_session_history(session_id).add_user_message(user_query)
+        get_session_history(session_id).add_ai_message(ans)
+        return {"answer": ans, "session_id": session_id}
+
+    profile_summary = ""
+    if user_profile:
+        parts = []
+        if name: parts.append(f"Name: {name}")
+        if height and weight and float(weight) > 0 and float(height) > 0:
+            h_m = float(height) / 100.0 if float(height) > 3 else float(height)
+            bmi_v = round(float(weight) / (h_m * h_m), 1)
+            parts.append(f"Height: {height}cm, Weight: {weight}kg, BMI: {bmi_v}")
+        if age: parts.append(f"Age: {age}")
+        if gender: parts.append(f"Gender: {gender}")
+        if parts:
+            profile_summary = f"[User Saved Profile: {', '.join(parts)}]\n"
 
     response_text = "I'm sorry, I encountered an internal issue. Please try again."
 
     chat_history_lc = get_session_history(session_id).messages
-    formatted_chat_history = ""
+    formatted_chat_history = profile_summary
     for msg in chat_history_lc:
         if isinstance(msg, HumanMessage):
             formatted_chat_history += f"User: {msg.content}\n"
