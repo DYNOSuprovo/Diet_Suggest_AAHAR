@@ -2425,10 +2425,15 @@ class AgentAction(BaseModel):
 
 # --- Enhanced Orchestrator Prompt ---
 ORCHESTRATOR_PROMPT_TEMPLATE = """
-You are AAHAR, an intelligent AI agent specialized in Indian diet and nutrition with access to a comprehensive nutrition database.
-Your goal is to assist users with diet-related queries by thinking step-by-step and providing accurate, data-driven answers.
+You are AAHAR, an intelligent, friendly AI assistant specialized in Indian diet and nutrition with access to the user's saved profile and a comprehensive nutrition database.
+Your goal is to assist users with diet and profile queries by thinking step-by-step and providing accurate, natural, and conversational answers matching the user's tone.
 
-You have access to a detailed nutrition database containing information about Indian foods including calories, protein, carbs, fats, fiber, and key vitamins/minerals.
+User Profile Context (Available in Chat History):
+If the user's query asks about their personal profile (such as their name, weight, height, age, BMI, or whether they are overweight/underweight):
+- Answer directly, warmly, and conversationally using the exact metrics from the [User Saved Profile] in Chat History.
+- Adapt your response naturally to match the user's tone (whether casual, friendly, or formal).
+- Do NOT output a generic meal plan table unless the user explicitly requested a meal plan.
+- Set final_answer directly with your response.
 
 Available Tools:
 1. **handle_greeting**: Respond to simple greetings
@@ -2451,12 +2456,12 @@ Current User Query: "{query}"
 Agent Scratchpad: {agent_scratchpad}
 
 **Decision Making:**
-- If user asks for nutrition facts or comparisons, use lookup_nutrition_facts or get_nutrition_comparison
-- If user asks for recipes, use fetch_recipe (will include nutrition data)
-- For diet plans, use generate_diet_plan (enhanced with nutrition database)
-- For weather-based suggestions, use get_weather_based_suggestion
-- If you've executed a tool that answers the user's query, set final_answer and stop
-- Always provide nutritionally accurate information using the database
+- If the query is about user profile/weight/height/BMI judgment, answer directly with final_answer matching user's tone.
+- If user asks for nutrition facts or comparisons, use lookup_nutrition_facts or get_nutrition_comparison.
+- If user asks for recipes, use fetch_recipe (will include nutrition data).
+- For diet plans, use generate_diet_plan (enhanced with nutrition database).
+- For weather-based suggestions, use get_weather_based_suggestion.
+- If you've executed a tool that answers the user's query, set final_answer and stop.
 
 Output JSON adhering to AgentAction model:
 """
@@ -2693,8 +2698,10 @@ async def chat(chat_request: ChatRequest, request: Request):
 
     query_lower = user_query.lower().strip()
 
+    is_advice_query = any(k in query_lower for k in ["how to", "how can", "way to", "tips", "should i", "why", "increase", "decrease", "lower", "reduce", "gain", "lose", "change", "improve", "bad", "good", "okay", "heavy", "skinny", "fat", "even know", "do you know"])
+
     # 1. Direct Name / Identity Query
-    is_name_query = any(k in query_lower for k in ["what's my name", "whats my name", "what is my name", "who am i", "my name"])
+    is_name_query = not is_advice_query and (query_lower in ["my name", "name"] or any(k in query_lower for k in ["what's my name", "whats my name", "what is my name", "who am i"]))
     if is_name_query:
         ans = f"Your saved name is **{name}**." if name else "I don't have your name saved yet! You can set your name in your Profile page."
         get_session_history(session_id).add_user_message(user_query)
@@ -2702,7 +2709,7 @@ async def chat(chat_request: ChatRequest, request: Request):
         return {"answer": ans, "session_id": session_id}
 
     # 2. Direct Weight Query
-    is_weight_query = any(k in query_lower for k in ["what's my weight", "whats my weight", "what is my weight", "how much do i weigh", "my weight"])
+    is_weight_query = not is_advice_query and (query_lower in ["my weight", "weight"] or any(k in query_lower for k in ["what's my weight", "whats my weight", "what is my weight", "how much do i weigh"]))
     if is_weight_query:
         ans = f"Your saved weight is **{weight} kg**." if weight and float(weight) > 0 else "I don't have your weight saved yet! You can update your weight in your Profile page."
         get_session_history(session_id).add_user_message(user_query)
@@ -2710,7 +2717,7 @@ async def chat(chat_request: ChatRequest, request: Request):
         return {"answer": ans, "session_id": session_id}
 
     # 3. Direct Height Query
-    is_height_query = any(k in query_lower for k in ["what's my height", "whats my height", "what is my height", "how tall am i", "my height"])
+    is_height_query = not is_advice_query and (query_lower in ["my height", "height"] or any(k in query_lower for k in ["what's my height", "whats my height", "what is my height", "how tall am i"]))
     if is_height_query:
         ans = f"Your saved height is **{int(height)} cm**." if height and float(height) > 0 else "I don't have your height saved yet! You can update your height in your Profile page."
         get_session_history(session_id).add_user_message(user_query)
