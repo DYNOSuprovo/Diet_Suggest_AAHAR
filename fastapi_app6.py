@@ -2681,18 +2681,30 @@ async def chat(chat_request: ChatRequest, request: Request):
 
     session_id = client_session_id or request.session.get("session_id") or f"session_{os.urandom(8).hex()}"
     request.session["session_id"] = session_id
-
-    logging.info(f"📩 Query: '{user_query}' | Session: {session_id} | Profile: {user_profile}")
-
-    # Handle direct BMI calculation queries cleanly
-    query_lower = user_query.lower()
-    is_bmi_query = any(k in query_lower for k in ["bmi", "body mass index", "my bmi", "calculate my bmi", "whats my bmi", "what is my bmi", "what's my bmi"])
-
+    
+    # Extract user profile variables
     weight = user_profile.get("weight")
     height = user_profile.get("height")
     age = user_profile.get("age")
     gender = user_profile.get("gender")
     name = user_profile.get("name")
+
+    logging.info(f"📩 Query: '{user_query}' | Session: {session_id} | Profile: {user_profile}")
+
+    # Handle direct identity / name questions cleanly
+    query_lower = user_query.lower()
+    is_name_query = any(k in query_lower for k in ["what's my name", "whats my name", "what is my name", "who am i", "my name"])
+    if is_name_query:
+        if name:
+            ans = f"Your saved name is **{name}**."
+        else:
+            ans = "I don't have your name saved yet! You can set your name in your Profile page."
+        get_session_history(session_id).add_user_message(user_query)
+        get_session_history(session_id).add_ai_message(ans)
+        return {"answer": ans, "session_id": session_id}
+
+    is_bmi_query = any(k in query_lower for k in ["bmi", "body mass index", "my bmi", "calculate my bmi", "whats my bmi", "what is my bmi", "what's my bmi"])
+
 
     if is_bmi_query and weight and height and float(weight) > 0 and float(height) > 0:
         w = float(weight)
@@ -2780,16 +2792,21 @@ async def chat(chat_request: ChatRequest, request: Request):
             tool_input = orchestrator_decision.tool_input if orchestrator_decision.tool_input is not None else {}
             tool_output = "Error: Tool execution failed."
 
-            # Fallback: If tool_name is None, default to generating a diet plan
+            # Smart Fallback: Only default to generating a full diet plan if query is actually asking for food/diet suggestions
             if tool_name is None:
-                logging.warning("⚠️ tool_name was None, defaulting to 'generate_diet_plan'")
-                tool_name = "generate_diet_plan"
-                tool_input = {
-                    "dietary_type": extract_diet_preference(user_query),
-                    "goal": extract_diet_goal(user_query),
-                    "region": extract_regional_preference(user_query),
-                    "wants_table": contains_table_request(user_query)
-                }
+                diet_keywords = ["diet", "meal", "food", "plan", "recipe", "eat", "lunch", "dinner", "breakfast", "snack", "thali", "nutrition", "calorie"]
+                if any(k in query_lower for k in diet_keywords):
+                    logging.warning("⚠️ tool_name was None, defaulting to 'generate_diet_plan'")
+                    tool_name = "generate_diet_plan"
+                    tool_input = {
+                        "dietary_type": extract_diet_preference(user_query),
+                        "goal": extract_diet_goal(user_query),
+                        "region": extract_regional_preference(user_query),
+                        "wants_table": contains_table_request(user_query)
+                    }
+                else:
+                    response_text = f"I'm AAHAR, your personal nutrition assistant. {profile_summary.strip()} How can I help you with your diet or meal planning today?"
+                    break
 
             try:
                 if tool_name == "handle_greeting":
