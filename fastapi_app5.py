@@ -2671,6 +2671,7 @@ class MealAnalysisResponse(BaseModel):
 
 # --- API Endpoints ---
 @app.post("/chat")
+@app.post("/api/chat")
 async def chat(chat_request: ChatRequest, request: Request):
     """Enhanced chat endpoint with nutrition database integration."""
     user_query = chat_request.query
@@ -2969,6 +2970,7 @@ Provide a brief, helpful analysis of this meal in 3-5 clear sentences.
 )
 
 @app.post("/analyze-meal", response_model=MealAnalysisResponse, tags=["Meal Analysis"])
+@app.post("/api/analyze-meal", response_model=MealAnalysisResponse, tags=["Meal Analysis"])
 async def analyze_meal(meal_request: MealAnalysisRequest):
     """
     Analyzes a list of dish names, calculates total nutrition, and provides an AI-driven summary.
@@ -3154,6 +3156,7 @@ async def compare_nutrition_endpoint(food_items: List[str]):
 
 @app.get("/healthz", tags=["Utilities"])
 @app.get("/health", tags=["Utilities"])
+@app.get("/api/health", tags=["Utilities"])
 async def health_check():
     """Enhanced health check with component status."""
     health_status = {
