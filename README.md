@@ -1,164 +1,83 @@
-# 🥗 AI Diet Suggestion System (Indian Edition) - AAHAR
+# 🥗 AAHAR: Advanced Assistant for Healthy Alimentary Recommendations
 
-> **AAHAR** (Advanced Assistant for Healthy Alimentary Recommendations) is a highly sophisticated, context-aware AI agent designed to navigate the complex landscape of Indian dietary habits. It leverages an Agentic RAG pipeline to provide culturally relevant, nutritionally grounded, and environmentally aware food advice.
+AAHAR is a sophisticated AI-driven nutrition assistant tailored for Indian dietary needs. It leverages Retrieval-Augmented Generation (RAG), a comprehensive Indian food nutrition database, and multi-model LLM orchestration to provide personalized diet plans, meal analysis, and weather-aware food suggestions.
 
-![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
-![LangChain](https://img.shields.io/badge/LangChain-Enabled-success?logo=OpenAI)
-![Gemini API](https://img.shields.io/badge/Gemini-Pro_API-orange?logo=google)
-![Groq](https://img.shields.io/badge/Groq-LLaMA3%2FMixtral%2FGemma-blueviolet?logo=groq)
-![ChromaDB](https://img.shields.io/badge/Vectorstore-ChromaDB-green?logo=database)
-![Status](https://img.shields.io/badge/Backend-FastAPI_Ready-brightgreen)
-![License](https://img.shields.io/github/license/DYNOSuprovo/Diet_Suggest_AAHAR)
+## 🚀 Key Features
 
----
+*   **Intelligent Chat Assistant**: Personalized Indian diet advice using RAG and a curated food database.
+*   **Meal Analysis**: Input your meal items (e.g., "Oatmeal with almonds"), and AAHAR calculates total calories, protein, carbs, and provides a nutritional audit.
+*   **Nutrition Database Search**: Instant lookup for over 3,500+ Indian food items with macro-nutrient details.
+*   **Weather-Aware Recommendations**: Suggests cooling foods in summer and warming foods in winter based on your local weather.
+*   **Multi-Model Orchestration**: Combines the reasoning capabilities of Groq (LLaMA 3) and Gemini for high-quality, balanced responses.
 
-## 📸 Project Overview
+## 🛠️ Technology Stack
 
-**AAHAR** intelligently provides regionally-aware and dietary-type-specific Indian food suggestions using a RAG (Retrieval-Augmented Generation) pipeline, conversational memory, and fallback LLM integrations via Groq.
+*   **Backend**: FastAPI, LangChain, Pydantic, Uvicorn.
+*   **AI/LLM**: Groq (LLaMA 3.3 70B), Gemini Pro (Fallback), Google Generative AI Embeddings.
+*   **Vector Store**: ChromaDB (Retrieval of dietary guidelines).
+*   **Data Science**: Pandas, FuzzyWuzzy (Nutrition database search).
 
-It understands queries like:
-> *"Suggest a South Indian vegetarian dinner plan for diabetes."*
-> *"What is the nutritional difference between Dal Makhani and Mixed Dal?"*
-> *"Analyze my meal: 2 Rotis, 1 cup of Chana Masala, and a bowl of curd."*
+## 📁 Project Structure
 
----
-
-## 📸 Architectural Workflow
-
-```mermaid
-graph TD
-    User([User Query]) --> UI[FastAPI / Streamlit UI]
-    UI --> Orchestrator{Agentic Orchestrator<br/>Gemini 2.5 Flash}
-    
-    subgraph Tools [Knowledge & Logic Tools]
-        Orchestrator --> RAG[RAG Engine<br/>ChromaDB + Gemini Embeddings]
-        Orchestrator --> NutriDB[Nutrition Engine<br/>Fuzzy Matching + JSON Database]
-        Orchestrator --> Weather[Weather API<br/>OpenWeather Integration]
-        Orchestrator --> Recipes[Recipe Fetcher<br/>Indian Cuisine Logic]
-    end
-    
-    subgraph Processing [Inference & Synthesis]
-        RAG --> Synthesis
-        NutriDB --> Synthesis
-        Weather --> Synthesis
-        Orchestrator --> BackupLLMs[Backup LLMs via Groq<br/>Llama 3 / Mixtral / Gemma 2]
-        BackupLLMs --> Synthesis[Synthesis & Merge Logic]
-    end
-    
-    Synthesis --> Output([Personalized Diet Plan / Analysis])
-    Output --> User
+```text
+Diet_Suggest_AAHAR-main/
+├── app/
+│   ├── api/                # API Route Handlers
+│   │   ├── chat.py         # /api/chat endpoint
+│   │   ├── meal_analysis.py # /api/analyze-meal endpoint
+│   │   ├── nutrition.py    # /api/nutrition search/stats
+│   │   └── utilities.py    # /api/health and other utilities
+│   ├── core/
+│   │   └── globals.py      # App-wide state (LLMs, Vector DB)
+│   ├── agent_tools.py      # Tools for the AI Agent (Weather, Recipe, etc)
+│   ├── llm_chains.py       # LangChain chain definitions and RAG logic
+│   ├── models.py           # Pydantic models (Request/Response schemas)
+│   ├── nutrition_search.py # Search logic for 3,500+ food records
+│   ├── prompts.py          # AI Prompt Templates
+│   ├── query_analysis.py   # Intent extraction and sentiment analysis
+│   └── vector_store.py     # ChromaDB management and HuggingFace sync
+├── fastapi_app6.py         # Main entry point and server initialization
+├── nutrition_data.json     # Curated Indian food nutrition dataset
+└── .env                    # Environment variables (API Keys)
 ```
 
----
+## ⚙️ Installation & Setup
 
-## 🧠 Core Intelligence Features
+1.  **Clone the Repository**:
+    ```bash
+    git clone https://github.com/your-repo/aahar.git
+    cd aahar
+    ```
 
-### 1. Agentic Orchestration Loop
-Unlike standard chatbots, AAHAR uses a self-correcting **6-iteration agent loop**. The orchestrator (Gemini 2.5 Flash) analyzes the query, selects the appropriate tool (Weather, RAG, Nutrition Fact, or Recipe), observes the output in a scratchpad, and iteratively refines its response until it meets the user's specific goals.
+2.  **Install Dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-### 2. Multi-Tier Nutrition Search Engine
-The system employs a sophisticated search strategy for its 1.3MB Indian food database:
-*   **Tier 1 (Exact):** Direct mapping for common dishes.
-*   **Tier 2 (Regex/Substring):** Identifies variations within category names.
-*   **Tier 3 (Fuzzy Logic):** Powered by `fuzzywuzzy` with a token-set ratio scorer (>85 threshold) to handle typos like "Paneer Tika" vs "Paneer Tikka."
+3.  **Configure Environment**:
+    Create a `.env` file with the following keys:
+    ```env
+    GEMINI_API_KEY=your_gemini_key
+    GROQ_API_KEY=your_groq_key
+    OPENWEATHER_API_KEY=your_weather_key
+    FASTAPI_SECRET_KEY=your_long_secret_string
+    ```
 
-### 3. Integrated Meal Analyzer
-The `/analyze-meal` engine provides professional-grade nutritional critiques:
-*   **Numeric Aggregation:** Calculates exact totals for Calories, Protein, Carbs, Sugar, Fats, Fiber, and Sodium from a list of consumed dishes.
-*   **AI Critique:** Gemini analyzes the aggregated totals to provide a 3-5 sentence professional assessment of the meal's balance, caloric density, and health suitability.
+4.  **Run the Server**:
+    ```bash
+    python fastapi_app6.py
+    ```
+    The server will automatically download the required Vector DB on first startup.
 
-### 4. Hyper-Local Cultural Awareness
-The system's metadata extraction engine is tuned for the Indian subcontinent:
-*   **Regions:** Maps cities to specific cuisines (e.g., Patna -> **Bihari**, Lucknow -> **Awadhi**, Kolkata -> **Bengali**).
-*   **Goals:** Understands the difference between "bulking," "clean bulking," "shredding," and "belly fat reduction."
-*   **Weather Awareness:** Automatically fetches real-time data to suggest **cooling foods** in heatwaves or **warming meals** during winters.
+## 📡 API Endpoints
 
----
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/chat` | Main chat endpoint (Agentic RAG) |
+| `POST` | `/api/analyze-meal` | Nutrition analysis of a list of dishes |
+| `GET` | `/api/nutrition/search/{food}` | Direct search in the food database |
+| `GET` | `/api/health` | Check system and component status |
 
-## 🛠 Tech Stack
-
-| Component         | Tool                                              |
-| ----------------- | ------------------------------------------------- |
-| **Brain**         | Google Gemini 2.5 Flash (Live)                    |
-| **Inference Path**| LangChain Agentic Orchestrator                    |
-| **Fallback LLMs** | Groq (Llama 3 70B, Mixtral 8x7B, Gemma 2 9B)      |
-| **Vector DB**     | ChromaDB with `text-embedding-004` (Gemini)       |
-| **Web Server**    | FastAPI with Uvicorn                              |
-| **Logic Props**   | Pandas, FuzzyWuzzy, OpenWeather API               |
-
----
-
-## 📂 Project Structure
-
-| File                  | Role                                                                         |
-| --------------------- | ---------------------------------------------------------------------------- |
-| `fastapi_app5.py`     | The "Brain" - Contains the Agentic Orchestrator, tool definitions, and API logic. |
-| `llm_chains.py`       | Core LangChain logic: RAG pipelines, Prompt Templates, and History management. |
-| `nutrition_data.json` | 1.3MB + Database of detailed nutritional profiles for Indian dishes.            |
-| `groq_integration.py` | Multi-threaded handler for fallback LLMs (Llama, Mixtral, Gemma).             |
-| `query_analysis.py`   | NLP module for extracting dietary preferences, regions, and user sentiment.    |
-| `weather.py`          | Real-time environment integration via OpenWeather API.                        |
-
----
-
-## � Output Types & Features
-
-*   ✅ **Plain-text Answer:** Direct, concise nutritional advice.
-*   ✅ **Merged Responses:** Intelligent blending of Gemini and Groq (fallback) data.
-*   ✅ **Tabular Format:** Markdown tables for meal plans (Meal, Food, Calories, Nutrients).
-*   ✅ **Meal Logs:** Aggregated nutritional summaries for multiple dishes.
-*   ✅ **Sentiment Detection:** Adjusts tone based on user positivity or frustration.
-
----
-
-## 🚀 Deployment & Usage
-
-### 🔧 Setup
-```bash
-# Clone and navigate
-git clone https://github.com/DYNOSuprovo/Diet_Suggest_AAHAR.git
-cd Diet_Suggest_AAHAR
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 🔑 Environment Configuration
-Create a `.env` file or export variables:
-```bash
-export GEMINI_API_KEY="your_key"
-export GROQ_API_KEY="your_key"
-export OPENWEATHER_API_KEY="your_key"
-```
-
-### 🥪 Running the App
-```bash
-# Start the Backend
-uvicorn fastapi_app5:app --host 0.0.0.0 --port 10000
-
-# Start the Streamlit UI (Optional)
-streamlit run streamlit_ui.py
-```
-
----
-
-## 🚧 Future Road Map
-*   � **Mobile App:** Flutter-based frontend for pocket-access.
-*   📊 **PDF Exports:** Generating professional PDF diet charts for users.
-*   🔔 **Reminders:** Native notifications for meal times and hydration.
-*   🤖 **Bot Integration:** Telegram and WhatsApp integration for low-latency queries.
-*   📈 **Vision Support:** Analyzing food images to estimate portion sizes.
-
----
-
-## �🙏 Acknowledgements
-*   Created with ❤️ by **Suprovo** (Lord d'Artagnan).
-*   [LangChain](https://github.com/langchain-ai/langchain) for the orchestration framework.
-*   [Google AI](https://ai.google.dev/) for the Gemini 2.5 Flash capabilities.
-*   [Groq API](https://console.groq.com/) for ultra-fast fallback inference.
-*   [OpenWeather](https://openweathermap.org/) for environmental context.
-
----
-
-## 📜 License
-MIT License — Fork it, improve it, contribute!
+## 👨‍💻 Author
+Created by **Suprovo**.
+Dedicated to making balanced nutrition accessible through AI.
