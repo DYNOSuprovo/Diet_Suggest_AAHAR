@@ -2703,10 +2703,16 @@ async def chat(chat_request: ChatRequest, request: Request):
         get_session_history(session_id).add_ai_message(ans)
         return {"answer": ans, "session_id": session_id}
 
-    # Handle direct BMI calculation queries cleanly
-    is_bmi_query = any(k in query_lower for k in ["bmi", "body mass index", "my bmi", "calculate my bmi", "whats my bmi", "what is my bmi", "what's my bmi"])
+    # Handle direct BMI calculation/score check requests cleanly
+    is_advice_query = any(k in query_lower for k in ["how to", "how can", "way to", "tips", "should i", "why", "increase", "decrease", "lower", "reduce", "gain", "lose", "change", "improve"])
+    is_bmi_calc_request = (
+        not is_advice_query and (
+            query_lower.strip() in ["bmi", "my bmi"] or
+            any(k in query_lower for k in ["whats my bmi", "what's my bmi", "what is my bmi", "calculate my bmi", "check my bmi", "show my bmi", "calculate bmi"])
+        )
+    )
 
-    if is_bmi_query and weight and height and float(weight) > 0 and float(height) > 0:
+    if is_bmi_calc_request and weight and height and float(weight) > 0 and float(height) > 0:
         w = float(weight)
         h_m = float(height) / 100.0 if float(height) > 3 else float(height)
         bmi_val = round(w / (h_m * h_m), 1)
@@ -2792,9 +2798,13 @@ async def chat(chat_request: ChatRequest, request: Request):
             tool_input = orchestrator_decision.tool_input if orchestrator_decision.tool_input is not None else {}
             tool_output = "Error: Tool execution failed."
 
-            # Smart Fallback: Only default to generating a full diet plan if query is actually asking for food/diet suggestions
+            # Smart Fallback: Only default to generating a full diet plan if query is actually asking for food/diet/health suggestions
             if tool_name is None:
-                diet_keywords = ["diet", "meal", "food", "plan", "recipe", "eat", "lunch", "dinner", "breakfast", "snack", "thali", "nutrition", "calorie"]
+                diet_keywords = [
+                    "diet", "meal", "food", "plan", "recipe", "eat", "lunch", "dinner", 
+                    "breakfast", "snack", "thali", "nutrition", "calorie", "bmi", "weight", 
+                    "gain", "lose", "increase", "decrease", "lower", "reduce", "health", "fat"
+                ]
                 if any(k in query_lower for k in diet_keywords):
                     logging.warning("⚠️ tool_name was None, defaulting to 'generate_diet_plan'")
                     tool_name = "generate_diet_plan"
