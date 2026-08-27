@@ -1,0 +1,129 @@
+/* Theme CSS Variables */
+:root,
+[data-theme="light"] {
+  /* Background colors */
+  --bg-primary: #f8fafc;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-nav: rgba(255, 255, 255, 0.85);
+
+  /* Gradients */
+  --bg-gradient-main: linear-gradient(180deg, #f0fdf4 0%, #f8fafc 100%);
+  --bg-gradient-header: linear-gradient(135deg, #1DB954, #16a34a, #15803d);
+  --bg-gradient-card: linear-gradient(135deg, #ffffff, #f8fafc);
+
+  /* Text colors */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+
+  /* Border colors */
+  --border-color: #e2e8f0;
+  --border-light: rgba(0, 0, 0, 0.05);
+
+  /* Component specific */
+  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --modal-bg: rgba(255, 255, 255, 0.95);
+  --input-bg: #f1f5f9;
+}
+
+[data-theme="dark"] {
+  /* Background colors */
+  --bg-primary: #0f172a;
+  --bg-secondary: #1e293b;
+  --bg-card: #1e293b;
+  --bg-nav: rgba(15, 23, 42, 0.6);
+
+  /* Gradients */
+  --bg-gradient-main: linear-gradient(180deg, #0f172a 0%, #0f172a 100%);
+  --bg-gradient-header: linear-gradient(135deg, #065f46, #0f766e, #0369a1);
+  /* Darker greens/blues */
+  --bg-gradient-card: linear-gradient(135deg, #1e293b, #334155);
+
+  /* Text colors */
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+
+  /* Border colors */
+  --border-color: rgba(148, 163, 184, 0.1);
+  --border-light: rgba(255, 255, 255, 0.05);
+
+  /* Component specific */
+  --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --modal-bg: #0f172a;
+  --input-bg: #334155;
+
+  /* Overrides for Dark Mode - Darker Greens */
+  --accent-primary: #15803d;
+  /* Darker Green (Green-700) */
+  --accent-secondary: #166534;
+  /* Even Darker (Green-800) */
+  --accent-light: rgba(21, 128, 61, 0.2);
+}
+
+/* Common Variables */
+:root {
+  --accent-primary: #1DB954;
+  --accent-secondary: #22c55e;
+  --accent-light: rgba(29, 185, 84, 0.15);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Base styles */
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Typography Defaults */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--text-primary);
+}
+
+p,
+span,
+label {
+  color: var(--text-secondary);
+}
+
+/* Input defaults */
+input,
+select,
+textarea {
+  background-color: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Card defaults */
+.card-glass {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-shadow);
+}

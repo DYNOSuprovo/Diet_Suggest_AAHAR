@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background Circle -->
+  <circle cx="256" cy="256" r="256" fill="#2E7D32"/>
+  
+  <!-- Inner Circle -->
+  <circle cx="256" cy="256" r="200" fill="#4CAF50"/>
+  
+  <!-- Leaf Shape -->
+  <path d="M 256 120 Q 340 180 340 280 Q 340 360 256 400 Q 172 360 172 280 Q 172 180 256 120 Z" 
+        fill="white" opacity="0.95"/>
+  
+  <!-- Leaf Vein -->
+  <line x1="256" y1="140" x2="256" y2="380" stroke="#2E7D32" stroke-width="8" stroke-linecap="round"/>
+  
+  <!-- Side Veins -->
+  <path d="M 256 200 Q 280 220 290 240" stroke="#2E7D32" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M 256 200 Q 232 220 222 240" stroke="#2E7D32" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M 256 260 Q 280 280 285 300" stroke="#2E7D32" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M 256 260 Q 232 280 227 300" stroke="#2E7D32" stroke-width="4" fill="none" stroke-linecap="round"/>
+  
+  <!-- Optional: Small Circle for Food Element -->
+  <circle cx="256" cy="360" r="15" fill="#2E7D32" opacity="0.6"/>
+</svg>

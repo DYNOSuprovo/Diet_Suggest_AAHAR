@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+pandas
+fuzzywuzzy
+python-Levenshtein
+python-dotenv
+langchain
+langchain-chroma
+langchain-google-genai
+langchain-community
+requests
+pydantic
+chromadb
+google-generativeai
+openpyxl
